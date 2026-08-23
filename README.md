@@ -13,16 +13,11 @@ Each level uses an **isolated database**. Flags are **random per installation**.
 
 Static UI preview (no database required):
 
-**https://you-in-you.github.io/sqli-playground/**
+[Live Demo](https://you-in-you.github.io/sqli-playground/demo/)
 
 - Level **01** is interactive (mock SQLi in the browser)
 - Levels **02–60** are visual demo only
 - Full real lab: clone and run locally
-
-Enable GitHub Pages: **Settings → Pages → Deploy from branch `main` → folder `/demo`**  
-(or use `/ (root)` if you prefer serving `demo/` via a root redirect).
-
-If Pages root is the repository root, open: `https://you-in-you.github.io/sqli-playground/demo/`
 
 ## Features
 

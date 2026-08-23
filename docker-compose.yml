@@ -1,0 +1,43 @@
+services:
+  db:
+    image: mariadb:11.4
+    container_name: sqli-ctf-db
+    environment:
+      MYSQL_ROOT_PASSWORD: rootpass
+      MYSQL_USER: ctf
+      MYSQL_PASSWORD: ctfpass
+    ports:
+      - "3306:3306"
+    volumes:
+      - sqli_data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD", "healthcheck.sh", "--connect", "--innodb_initialized"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+    command: --character-set-server=utf8mb4 --collation-server=utf8mb4_unicode_ci
+
+  web:
+    build: .
+    container_name: sqli-ctf-web
+    ports:
+      - "5000:5000"
+    environment:
+      DB_HOST: db
+      DB_PORT: 3306
+      DB_USER: root
+      DB_PASS: rootpass
+      SECRET_KEY: change-me-in-production-sqli-ctf-2026
+      FLASK_ENV: development
+    volumes:
+      - ./app:/app/app
+      - ./scripts:/app/scripts
+      - ./flags.json:/app/flags.json
+    depends_on:
+      db:
+        condition: service_healthy
+    command: >
+      sh -c "python scripts/setup_db.py && python -m flask --app app.main run --host=0.0.0.0 --port=5000 --debug"
+
+volumes:
+  sqli_data:

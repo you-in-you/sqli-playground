@@ -1,0 +1,9 @@
+{
+  "DB_HOST": "127.0.0.1",
+  "DB_PORT": 3306,
+  "DB_USER": "ctf",
+  "DB_PASS": "ctfpass",
+  "SECRET_KEY": "sqli-ctf-local-change-me",
+  "HOST": "0.0.0.0",
+  "PORT": 5000
+}

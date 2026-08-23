@@ -1,0 +1,142 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>SQLi Playground — CTF Lab</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@300;400;500;600;700;800&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}" />
+</head>
+<body>
+  <div id="dashboard" class="page active">
+    <header class="header">
+      <div class="logo">
+        <span class="logo-icon">⌘</span>
+        <span class="logo-text">SQLi Playground</span>
+      </div>
+      <div class="header-right">
+        <span class="progress-text">Progress: <span id="progress-count">0</span>/60</span>
+      </div>
+    </header>
+    <main class="main">
+      <section class="hero">
+        <h1>SQL Injection Lab</h1>
+        <p>60 levels • Progressive • No mercy • Local only</p>
+      </section>
+      <section class="levels-section">
+        <div class="section-header">
+          <h2>Levels</h2>
+          <div class="filter-tabs">
+            <button class="tab active" data-filter="all">All</button>
+            <button class="tab" data-filter="easy">Easy</button>
+            <button class="tab" data-filter="medium">Medium</button>
+            <button class="tab" data-filter="hard">Hard</button>
+            <button class="tab" data-filter="expert">Expert</button>
+            <button class="tab" data-filter="insane">Insane</button>
+          </div>
+        </div>
+        <div id="levels-grid" class="levels-grid"></div>
+      </section>
+      <section class="solved-section">
+        <div class="section-header"><h2>Solved Flags</h2></div>
+        <div id="solved-flags" class="solved-flags">
+          <p class="empty-state">No flags captured yet.</p>
+        </div>
+      </section>
+    </main>
+  </div>
+
+  <div id="level-page" class="page">
+    <header class="header">
+      <div class="logo">
+        <button id="btn-back" class="btn-back" title="Back">←</button>
+        <span class="logo-text">SQLi Playground</span>
+      </div>
+      <div class="header-right">
+        <span id="level-badge" class="level-badge">LEVEL 01</span>
+      </div>
+    </header>
+    <main class="main level-main">
+      <div class="level-container">
+        <div class="level-header">
+          <div class="level-title-row">
+            <h1 id="level-title">—</h1>
+            <span id="level-difficulty" class="difficulty-tag">—</span>
+          </div>
+          <p id="level-desc" class="level-desc"></p>
+        </div>
+
+        <div class="attack-panel">
+          <div class="attack-meta">
+            <span class="attack-method">POST</span>
+            <span class="attack-path" id="attack-path">/login</span>
+          </div>
+          <div class="attack-fields">
+            <div class="field">
+              <label class="field-label">username</label>
+              <input type="text" id="payload-input" class="field-input" placeholder="admin' OR '1'='1" autocomplete="off" spellcheck="false" />
+            </div>
+            <div class="field">
+              <label class="field-label">password</label>
+              <input type="text" id="payload-pass" class="field-input" placeholder="password" autocomplete="off" spellcheck="false" />
+            </div>
+          </div>
+          <button id="btn-send-payload" class="btn-attack">EXECUTE</button>
+        </div>
+
+        <div id="response-area" class="response-panel hidden">
+          <div class="response-header"><span class="response-status">RESPONSE</span></div>
+          <pre id="response-content" class="response-body"></pre>
+        </div>
+
+        <div class="hint-panel" id="hint-indirect">
+          <div class="hint-row">
+            <span class="hint-mark">?</span>
+            <span id="hint-indirect-text" class="hint-text"></span>
+            <span class="hint-action">[ technical ]</span>
+          </div>
+          <div id="hint-technical" class="hint-tech hidden">
+            <span id="hint-technical-text"></span>
+          </div>
+        </div>
+
+        <div class="flag-panel">
+          <div class="flag-row">
+            <input type="text" id="flag-input" class="flag-input" placeholder="CTF{...}" autocomplete="off" spellcheck="false" />
+            <button id="btn-submit-flag" class="btn-submit">SUBMIT</button>
+          </div>
+          <div id="flag-message" class="flag-message hidden"></div>
+        </div>
+      </div>
+    </main>
+  </div>
+
+
+  <!-- HISTORY MODAL -->
+  <div id="history-overlay" class="overlay hidden">
+    <div class="history-card">
+      <div class="history-top">
+        <h2 id="history-title">Level History</h2>
+        <button id="btn-close-history" class="btn-ghost">CLOSE</button>
+      </div>
+      <div id="history-body" class="history-body"></div>
+    </div>
+  </div>
+
+  <div id="success-overlay" class="overlay hidden">
+    <div class="success-card">
+      <div class="success-icon">✓</div>
+      <h2>Level Cleared</h2>
+      <p id="success-flag-text" class="success-flag"></p>
+      <div class="success-actions">
+        <button id="btn-next-level" class="btn-attack">NEXT LEVEL</button>
+        <button id="btn-back-dashboard" class="btn-ghost">DASHBOARD</button>
+      </div>
+    </div>
+  </div>
+
+  <script src="{{ url_for('static', filename='js/app.js') }}"></script>
+</body>
+</html>

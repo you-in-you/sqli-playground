@@ -4,6 +4,6 @@
   "DB_USER": "ctf",
   "DB_PASS": "ctfpass",
   "SECRET_KEY": "sqli-ctf-local-change-me",
-  "HOST": "0.0.0.0",
+  "HOST": "127.0.0.1",
   "PORT": 5000
 }

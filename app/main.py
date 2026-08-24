@@ -30,15 +30,15 @@ def api_levels():
     levels = []
     for i in range(1, TOTAL_LEVELS + 1):
         unlocked = is_level_unlocked(i)
+        meta = get_meta(i)
         item = {
             "id": i,
             "unlocked": unlocked,
             "solved": i in solved,
+            "diff": meta["diff"],
         }
         if unlocked or i in solved:
-            meta = get_meta(i)
             item["name"] = meta["name"]
-            item["diff"] = meta["diff"]
         levels.append(item)
     return jsonify({
         "levels": levels,

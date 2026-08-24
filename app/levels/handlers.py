@@ -8,7 +8,8 @@ from __future__ import annotations
 import re
 import time
 from typing import Any
-
+import urllib.parse
+import random
 from app.db import get_conn, level_db
 
 
@@ -28,7 +29,8 @@ def _run(level_id: int, query: str) -> dict[str, Any]:
                 return {
                     "ok": True if rows else False,
                     "message": "Query executed",
-                    "raw": f"Query: {query}\n\nResult: {rows if rows else '(no rows / non-select)'}",
+                    "Query": f"Query: {query}", 
+                    "raw": f"Result: {rows if rows else '(no rows / non-select)'}",
                     "rows": rows,
                 }
         finally:
@@ -37,7 +39,8 @@ def _run(level_id: int, query: str) -> dict[str, Any]:
         return {
             "ok": False,
             "message": "Database error",
-            "raw": f"Query: {query}\n\nError: {type(e).__name__}: {e}",
+            "Query": f"Query: {query}",
+            "raw": f"Error: {type(e).__name__}: {e}",
             "error": str(e),
         }
 
@@ -51,59 +54,321 @@ def handle_01(p: dict) -> dict:
     u, pw = p.get("username", ""), p.get("password", "")
     q = f"SELECT id, username, role FROM users WHERE username = '{u}' AND password = '{pw}'"
     r = _run(1, q)
+
     if r.get("rows"):
         user = r["rows"][0]
-        r["message"] = f"Welcome, {user.get('username')} ({user.get('role')})"
-        r["ok"] = True
-    elif r.get("ok") and not r.get("rows"):
-        r["message"] = "Login failed. Invalid username or password."
-        r["ok"] = False
+        msg = f"Welcome, {user.get('username')} ({user.get('role')})"
+        
+        if user.get("username") == "admin" or user.get("role") == "admin":
+            f = _run(1, "SELECT flag FROM secrets LIMIT 1")
+            msg += f" - Flag: {f['rows'][0]['flag']}" if f.get("rows") else ""
+
+        r["message"], r["ok"] = msg, True
+    else:
+        r["message"], r["ok"] = "Login failed.", False
+
     return r
 
-
-# ───────────────────────── Level 02 — string, must close quote ─────────────────────────
+# ───────────────────────── Level 02 — Bypassing Logic without Comments ─────────────────────────
 def handle_02(p: dict) -> dict:
     u = p.get("username", "")
-    # Always wrapped in quotes — classic string SQLi
-    q = f"SELECT id, username, email FROM users WHERE username = '{u}' LIMIT 5"
-    return _run(2, q)
+    
+    if "--" in u or "/*" in u or "#" in u:
+        return {"message": "Comments are blocked!", "ok": False}
 
+    q = f"SELECT id, username, email FROM users WHERE username = '{u}' AND role = 'user'"
+    r = _run(2, q)
+    rows = r.get("rows", [])
 
-# ───────────────────────── Level 03 — numeric, no quotes ─────────────────────────
+    if len(rows) == 1 and rows[0].get("username") == "admin":
+        f = _run(2, "SELECT flag FROM secrets LIMIT 1")
+        
+        if f.get("rows"):
+            flag_val = f["rows"][0].get("flag")
+            r["message"] = f"Admin bypass successful! Flag: {flag_val}"
+            r["ok"] = True
+        else:
+            r["message"] = "Admin bypass successful! But secrets table is empty."
+            r["ok"] = False
+    elif len(rows) > 1:
+        r["message"] = "Too many rows returned! Do not dump the table, target only Admin."
+        r["ok"] = False
+    else:
+        r["message"] = "User found, but not admin (or no user found)."
+        r["ok"] = False
+
+    return r
+
+# ───────────────────────── Level 03 — Numeric Logic & Operator Bypass ─────────────────────────
 def handle_03(p: dict) -> dict:
-    uid = p.get("username", "0")  # treat as id
-    q = f"SELECT id, username, role FROM users WHERE id = {uid}"
-    return _run(3, q)
+    uid = str(p.get("username", "0"))
 
+    if any(c in uid for c in ["--", "/*", "#", "'", '"']):
+        return {"message": "No comments or quotes allowed!", "ok": False}
 
-# ───────────────────────── Level 04 — UNION basic ─────────────────────────
+    q = f"SELECT id, username, role FROM users WHERE id = {uid} AND role != 'admin'"
+    r = _run(3, q)
+
+    rows = r.get("rows", [])
+
+    if len(rows) == 1 and rows[0].get("username") == "admin":
+        f = _run(3, "SELECT flag FROM secrets LIMIT 1")
+        if f.get("rows"):
+            r["message"] = f"Numeric SQLi success! Flag: {f['rows'][0]['flag']}"
+            r["ok"] = True
+        else:
+            r["message"] = "Admin found, but secrets table is empty."
+            r["ok"] = False
+    elif len(rows) > 1:
+        r["message"] = "Too many rows returned! You dumped the whole table, focus only on Admin."
+        r["ok"] = False
+    else:
+        r["message"] = "Access denied or user not found."
+        r["ok"] = False
+
+    return r
+
+# ───────────────────────── Level 04 — Discovering Column Count with UNION ─────────────────────────
 def handle_04(p: dict) -> dict:
     u = p.get("username", "")
+
     q = f"SELECT username, email FROM users WHERE username = '{u}'"
-    return _run(4, q)
+    r = _run(4, q)
 
+    if not r.get("ok"):
+        return {"message": f"Database Error: {r.get('error', 'Query failed')}", "ok": False}
 
-# ───────────────────────── Level 05 — find column count ─────────────────────────
+    rows = r.get("rows", [])
+
+    if rows:
+        for row in rows:
+            if "edis" in row.values():
+                f = _run(4, "SELECT flag FROM secrets LIMIT 1")
+                flag_val = f["rows"][0].get("flag") if f.get("rows") else ""
+                return {"message": f"Column count matched & UNION successful! Flag: {flag_val}", "ok": True}
+
+        return {"message": "Query executed", "ok": False}
+
+    return {"message": "No results returned. Find the column count and inject 'edis' via UNION SELECT.", "ok": False}
+
+# ───────────────────────── Level 05 — Matching Data Types with UNION ─────────────────────────
 def handle_05(p: dict) -> dict:
     u = p.get("username", "")
-    q = f"SELECT id, username, password, email, role FROM users WHERE username = '{u}'"
-    return _run(5, q)
 
+    q = f"SELECT username, password, email, role, id FROM users WHERE username = '{u}'"
+    r = _run(5, q)
 
-# ───────────────────────── Level 06 — UNION extract flag ─────────────────────────
+    if not r.get("ok"):
+        return {"message": f"Database Error: {r.get('error', 'Query failed')}", "ok": False}
+
+    rows = r.get("rows", [])
+
+    if rows:
+        for row in rows:
+            vals = list(row.values())
+
+            if len(vals) == 5:
+                first_four_are_str = all(isinstance(v, str) for v in vals[:4])
+                fifth_is_1337 = isinstance(vals[4], (int, float)) and vals[4] == 1337
+
+                if first_four_are_str and fifth_is_1337:
+                    f = _run(5, "SELECT flag FROM secrets LIMIT 1")
+                    flag_val = f["rows"][0].get("flag") if f.get("rows") else ""
+                    return {"message": f"Data types strictly matched & UNION successful! Flag: {flag_val}", "ok": True}
+
+        return {"message": "Payload layout invalid! .", "ok": False}
+
+    return {"message": "No results returned. Match column counts and data types via UNION SELECT.", "ok": False}
+
+# ───────────────────────── Level 06 — Extracting Table Names under Filtered Syntax ─────────────────────────
+
 def handle_06(p: dict) -> dict:
-    u = p.get("username", "")
-    q = f"SELECT id, username, role FROM users WHERE username = '{u}'"
-    return _run(6, q)
+    raw_u = p.get("username", "")
 
+    if any(c in raw_u for c in ["--", "/*", "#"]):
+        return {"message": "Standard comments are blocked!", "ok": False}
+
+    u = urllib.parse.unquote(raw_u)
+
+    q = f"SELECT id, username, role FROM users WHERE username = '{u}'"
+    r = _run(6, q)
+
+    if not r.get("ok"):
+        return {"message": f"Database Error: {r.get('error', 'Query failed')}", "ok": False}
+
+    rows = r.get("rows", [])
+    r["result"] = rows
+
+    if rows:
+        all_vals = " ".join([str(v) for row in rows for v in row.values()]).lower()
+
+        system_tables = ["character_sets", "collations", "engines", "routines", "tablespaces"]
+        if any(sys_t in all_vals for sys_t in system_tables):
+            r["message"] = "Too noisy! You dumped all system tables. Limit your query using table_schema = database()."
+            r["ok"] = False
+            return r
+
+        if "secrets" in all_vals:
+            f = _run(6, "SELECT flag FROM secrets LIMIT 1")
+            flag_val = f["rows"][0].get("flag") if f.get("rows") else ""
+            r["message"] = f"Table schema enumerated successfully! Flag: {flag_val}"
+            r["ok"] = True
+            return r
+
+        r["message"] = "Query executed"
+        r["ok"] = False
+    else:
+        r["message"] = "No rows returned."
+        r["ok"] = False
+
+    return r
 
 # ───────────────────────── Level 07 — comment styles ─────────────────────────
-def handle_07(p: dict) -> dict:
-    u, pw = p.get("username", ""), p.get("password", "")
-    # trailing part must be commented
-    q = f"SELECT id, username FROM users WHERE username = '{u}' AND password = '{pw}' AND role = 'user'"
-    return _run(7, q)
 
+def _setup_level_07_dynamic_table():
+    check_db_q = (
+        "SELECT schema_name FROM information_schema.schemata "
+        "WHERE schema_name LIKE 'sqli_db_level7_%' LIMIT 1"
+    )
+    res_db = _run(7, check_db_q)
+
+    sec = _run(7, "SELECT flag FROM sqli_level_07.secrets WHERE name = 'level_flag' LIMIT 1")
+    if not sec.get("rows"):
+        sec = _run(7, "SELECT flag FROM sqli_level_07.secrets LIMIT 1")
+
+    main_flag = (
+        sec["rows"][0]["flag"]
+        if (sec.get("rows") and "flag" in sec["rows"][0])
+        else "NOT HERE"
+    )
+
+    if res_db.get("rows"):
+        existing_db = res_db["rows"][0]["schema_name"]
+
+        if main_flag.startswith("CTF{"):
+            check_tbl = (
+                f"SELECT table_name FROM information_schema.tables "
+                f"WHERE table_schema = '{existing_db}' "
+                f"AND table_name LIKE 'CTF_level7_%' LIMIT 1"
+            )
+            res_tbl = _run(7, check_tbl)
+            if res_tbl.get("rows"):
+                tbl_name = res_tbl["rows"][0]["table_name"]
+                safe_flag = main_flag.replace("\\", "\\\\").replace("'", "''")
+                _run(7, f"UPDATE `{existing_db}`.`{tbl_name}` SET flag = '{safe_flag}'")
+
+            _run(7, "UPDATE sqli_level_07.secrets SET flag = 'NOT HERE' WHERE name = 'level_flag'")
+        return
+
+    rand_db_id = random.randint(1000, 9999)
+    new_db = f"sqli_db_level7_{rand_db_id}"
+    _run(7, f"CREATE DATABASE IF NOT EXISTS `{new_db}`")
+
+    rand_tbl_id = random.randint(1000, 9999)
+    new_tbl = f"CTF_level7_{rand_tbl_id}"
+
+    flag_to_insert = main_flag if main_flag.startswith("CTF{") else "CTF{dynamic_schema_bypass_7392}"
+    safe_flag = flag_to_insert.replace("\\", "\\\\").replace("'", "''")
+
+    _run(7, f"CREATE TABLE IF NOT EXISTS `{new_db}`.`{new_tbl}` (id INT, flag VARCHAR(255))")
+    _run(7, f"INSERT INTO `{new_db}`.`{new_tbl}` (id, flag) VALUES (1, '{safe_flag}')")
+
+    _run(7, "UPDATE sqli_level_07.secrets SET flag = 'NOT HERE' WHERE name = 'level_flag'")
+
+
+def _restore_flag_and_drop_dynamic_db() -> str | None:
+
+    res_db = _run(
+        7,
+        "SELECT schema_name FROM information_schema.schemata "
+        "WHERE schema_name LIKE 'sqli_db_level7_%' LIMIT 1",
+    )
+    if not res_db.get("rows"):
+        return None
+
+    dyn_db = res_db["rows"][0]["schema_name"]
+
+    res_tbl = _run(
+        7,
+        f"SELECT table_name FROM information_schema.tables "
+        f"WHERE table_schema = '{dyn_db}' AND table_name LIKE 'CTF_level7_%' LIMIT 1",
+    )
+    recovered = None
+    if res_tbl.get("rows"):
+        tbl = res_tbl["rows"][0]["table_name"]
+        flag_res = _run(7, f"SELECT flag FROM `{dyn_db}`.`{tbl}` LIMIT 1")
+        if flag_res.get("rows") and "flag" in flag_res["rows"][0]:
+            recovered = flag_res["rows"][0]["flag"]
+
+    if recovered and str(recovered).startswith("CTF{"):
+        safe_flag = str(recovered).replace("\\", "\\\\").replace("'", "''")
+        _run(
+            7,
+            f"UPDATE sqli_level_07.secrets SET flag = '{safe_flag}' WHERE name = 'level_flag'",
+        )
+        check = _run(7, "SELECT id FROM sqli_level_07.secrets WHERE name = 'level_flag' LIMIT 1")
+        if not check.get("rows"):
+            _run(
+                7,
+                f"INSERT INTO sqli_level_07.secrets (name, flag) VALUES ('level_flag', '{safe_flag}')",
+            )
+
+    _run(7, f"DROP DATABASE IF EXISTS `{dyn_db}`")
+    return recovered
+
+
+def handle_07(p: dict) -> dict:
+    _setup_level_07_dynamic_table()
+
+    raw_u = p.get("username", "")
+
+    if any(c in raw_u for c in ["--", "/*", "#"]):
+        return {"message": "Standard comments are blocked!", "ok": False}
+
+    if "(" in raw_u or ")" in raw_u:
+        return {
+            "message": "Parentheses '()' are strictly forbidden! No function calls allowed.",
+            "ok": False,
+        }
+
+    u = urllib.parse.unquote(raw_u)
+
+    q = f"SELECT id, username, role FROM users WHERE username = '{u}'"
+    r = _run(7, q)
+
+    if not r.get("ok"):
+        return {"message": f"Database Error: {r.get('error', 'Query failed')}", "ok": False}
+
+    rows = r.get("rows", [])
+
+    if len(rows) > 3:
+        return {
+            "message": "Too many rows returned! Do not dump all schemas. Filter your query specifically.",
+            "ok": False,
+        }
+
+    r["result"] = rows
+
+    if rows:
+        all_vals = " ".join([str(v) for row in rows for v in row.values()])
+
+        if "CTF{" in all_vals:
+            recovered = _restore_flag_and_drop_dynamic_db()
+            r["message"] = "Full Dynamic Schema Dump Successful! Flag extracted."
+            if recovered:
+                r["message"] += " Submit the flag to clear the level."
+            r["ok"] = True
+            return r
+
+        r["message"] = (
+            f"Query executed successfully. Rows returned: {len(rows)}. Keep enumerating."
+        )
+        r["ok"] = False
+    else:
+        r["message"] = "No rows returned."
+        r["ok"] = False
+
+    return r
 
 # ───────────────────────── Level 08 — auth bypass ─────────────────────────
 def handle_08(p: dict) -> dict:

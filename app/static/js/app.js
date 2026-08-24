@@ -48,7 +48,7 @@ function renderLevels() {
   const filtered =
     currentFilter === "all"
       ? levelsCache
-      : levelsCache.filter((l) => l.diff === currentFilter || (!l.unlocked && !l.solved));
+      : levelsCache.filter((l) => l.diff === currentFilter);
 
   filtered.forEach((level) => {
     const card = document.createElement("div");
@@ -254,9 +254,16 @@ function showDashboard() {
 
 $$(".tab").forEach((tab) => {
   tab.addEventListener("click", () => {
-    $$(".tab").forEach((t) => t.classList.remove("active"));
+    $$(".tab").forEach((t) => {
+      t.classList.remove("active");
+      t.removeAttribute("data-active-diff");
+    });
     tab.classList.add("active");
-    currentFilter = tab.dataset.filter;
+    const filter = tab.dataset.filter;
+    currentFilter = filter;
+    if (filter && filter !== "all") {
+      tab.setAttribute("data-active-diff", filter);
+    }
     renderLevels();
   });
 });

@@ -7,6 +7,7 @@
   --hard:#ff9100;--hard-dim:rgba(255,145,0,.1);
   --expert:#d500f9;--expert-dim:rgba(213,0,249,.1);
   --insane:#ff0055;--insane-dim:rgba(255,0,85,.12);
+  --hint:#ffe566;--hint-dim:rgba(255,229,102,.1);
   --red:#ff0055;--cyan:#00e5ff;--font:'JetBrains Mono',monospace
 }
 html{font-size:13.5px}
@@ -35,6 +36,11 @@ body::before{content:"";position:fixed;inset:0;background:radial-gradient(ellips
 .tab{background:transparent;border:1px solid var(--border);color:var(--dim);padding:4px 10px;border-radius:2px;font-family:var(--font);font-size:10px;font-weight:600;cursor:pointer;transition:all .12s;letter-spacing:.6px;text-transform:uppercase}
 .tab:hover{border-color:var(--border2);color:var(--muted)}
 .tab.active{background:var(--bg3);border-color:var(--dim);color:var(--text)}
+.tab.active[data-active-diff="easy"]{color:var(--easy);border-color:var(--easy);background:var(--easy-dim);text-shadow:0 0 8px rgba(0,255,136,.3)}
+.tab.active[data-active-diff="medium"]{color:var(--medium);border-color:var(--medium);background:var(--medium-dim);text-shadow:0 0 8px rgba(0,229,255,.3)}
+.tab.active[data-active-diff="hard"]{color:var(--hard);border-color:var(--hard);background:var(--hard-dim);text-shadow:0 0 8px rgba(255,145,0,.3)}
+.tab.active[data-active-diff="expert"]{color:var(--expert);border-color:var(--expert);background:var(--expert-dim);text-shadow:0 0 8px rgba(213,0,249,.3)}
+.tab.active[data-active-diff="insane"]{color:var(--insane);border-color:var(--insane);background:var(--insane-dim);text-shadow:0 0 8px rgba(255,0,85,.3)}
 .levels-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:8px;margin-bottom:48px}
 .level-card{background:var(--bg3);border:1px solid var(--border);border-radius:3px;padding:13px 15px;cursor:pointer;transition:all .18s ease;position:relative;overflow:hidden;min-height:76px}
 .level-card:hover:not(.locked){border-color:var(--card-accent,var(--border2));background:#12121a;box-shadow:0 0 20px rgba(0,0,0,.4)}
@@ -91,13 +97,20 @@ body[data-diff="insane"] .btn-attack:hover{background:rgba(255,0,85,.08);border-
 .response-header{padding:8px 14px;background:#0a0a10;border-bottom:1px solid #16161e}
 .response-status{font-size:9px;font-weight:700;color:var(--dim);letter-spacing:1.5px;text-transform:uppercase}
 .response-body{padding:14px;font-size:11.5px;line-height:1.7;color:#8a8a9e;overflow-x:auto;white-space:pre-wrap;word-break:break-all;max-height:280px;overflow-y:auto}
-.hint-panel{background:var(--bg3);border:1px solid var(--border);border-radius:3px;cursor:pointer;transition:border-color .15s;user-select:none}
-.hint-panel:hover{border-color:#2a2a3a}
+.hint-panel{background:var(--bg3);border:1px solid var(--border);border-radius:3px;cursor:pointer;transition:all .15s;user-select:none}
+.hint-panel:hover,
+.hint-panel.open{border-color:var(--hint);background:var(--hint-dim);box-shadow:0 0 16px rgba(255,229,102,.12)}
+.hint-panel:hover .hint-mark,
+.hint-panel.open .hint-mark{color:var(--hint);border-color:var(--hint);text-shadow:0 0 8px rgba(255,229,102,.4)}
+.hint-panel:hover .hint-text,
+.hint-panel.open .hint-text{color:var(--hint)}
+.hint-panel:hover .hint-action,
+.hint-panel.open .hint-action{color:var(--hint)}
 .hint-row{display:flex;align-items:center;gap:10px;padding:12px 14px}
-.hint-mark{font-size:12px;font-weight:800;color:var(--dim);width:18px;height:18px;display:flex;align-items:center;justify-content:center;border:1px solid var(--border2);border-radius:2px;flex-shrink:0}
-.hint-text{flex:1;font-size:12px;color:var(--muted);font-style:italic}
-.hint-action{font-size:9px;color:var(--dim);letter-spacing:.8px;text-transform:uppercase;flex-shrink:0}
-.hint-tech{padding:0 14px 12px 42px;font-size:12px;color:var(--text);line-height:1.55;animation:slideDown .15s ease}
+.hint-mark{font-size:12px;font-weight:800;color:var(--dim);width:18px;height:18px;display:flex;align-items:center;justify-content:center;border:1px solid var(--border2);border-radius:2px;flex-shrink:0;transition:all .15s}
+.hint-text{flex:1;font-size:12px;color:var(--muted);font-style:italic;transition:color .15s}
+.hint-action{font-size:9px;color:var(--dim);letter-spacing:.8px;text-transform:uppercase;flex-shrink:0;transition:color .15s}
+.hint-tech{padding:0 14px 12px 42px;font-size:12px;color:var(--hint);line-height:1.55;animation:slideDown .15s ease}
 .hint-tech.hidden{display:none}
 @keyframes slideDown{from{opacity:0;transform:translateY(-4px)}to{opacity:1;transform:translateY(0)}}
 .flag-panel{background:var(--bg3);border:1px solid var(--border);border-radius:3px;padding:12px}

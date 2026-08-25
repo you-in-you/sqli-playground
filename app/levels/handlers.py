@@ -370,51 +370,364 @@ def handle_07(p: dict) -> dict:
 
     return r
 
-# ───────────────────────── Level 08 — auth bypass ─────────────────────────
+# ───────────────────────── Level 08 — Error-Based Only ─────────────────────────
 def handle_08(p: dict) -> dict:
-    u, pw = p.get("username", ""), p.get("password", "")
-    q = f"SELECT id, username, role FROM users WHERE username = '{u}' AND password = '{pw}'"
+    u = p.get("username", "")
+
+    # Block the easy result-set paths so the intended channel is SQL errors
+    lowered = u.lower()
+    if "union" in lowered:
+        return {
+            "message": "UNION-based extraction is blocked on this level. Use an error-based channel.",
+            "ok": False,
+            "raw": "",
+        }
+
+    q = f"SELECT id, username, role FROM users WHERE username = '{u}' AND role = 'user'"
     r = _run(8, q)
-    if r.get("rows"):
-        r["message"] = f"Logged in as {r['rows'][0].get('username')}"
-        r["ok"] = True
-    return r
 
+    # Only the real DB exception text counts (not SELECT row dumps)
+    err = str(r.get("error") or "")
+    raw = str(r.get("raw") or "")
 
-# ───────────────────────── Level 09 — verbose errors (already default) ─────────────────────────
+    # Prefer the explicit error field; fall back to raw only if it looks like an exception
+    error_text = err
+    if not error_text and "Error:" in raw:
+        error_text = raw
+
+    if "CTF{" in error_text:
+        f = _run(8, "SELECT flag FROM secrets WHERE name = 'level_flag' LIMIT 1")
+        if not f.get("rows"):
+            f = _run(8, "SELECT flag FROM secrets LIMIT 1")
+        flag_val = f["rows"][0].get("flag") if f.get("rows") else ""
+        return {
+            "message": (
+                f"Error-based extraction successful! Flag: {flag_val}"
+                if flag_val
+                else "Error-based extraction successful!"
+            ),
+            "ok": True,
+            # show the error that leaked data (learning feedback)
+            "raw": error_text,
+            "error": err or None,
+        }
+
+    # Harden response: do not reflect SELECT rows (prevents visual dump + submit)
+    if r.get("error") or "Error:" in raw:
+        return {
+            "message": "Query failed — read the error carefully. Data may be hiding inside it.",
+            "ok": False,
+            "raw": error_text or raw,
+            "error": err or None,
+        }
+
+    return {
+        "message": (
+            "Query executed, but row output is hidden on this level. "
+            "Force a SQL error that includes data from the secrets table."
+        ),
+        "ok": False,
+        "raw": "",
+    }
+
+# ───────────────────────── Level 09 — IF logic required ─────────────────────────
 def handle_09(p: dict) -> dict:
     u = p.get("username", "")
-    q = f"SELECT * FROM users WHERE username = '{u}'"
-    return _run(9, q)
+    lowered = u.lower()
 
+    q = f"SELECT id, username, role FROM users WHERE username = '{u}'"
+    r = _run(9, q)
 
-# ───────────────────────── Level 10 — boolean blind (no data in response) ─────────────────────────
+    if r.get("error"):
+        return {
+            "message": f"Database Error: {r.get('error')}",
+            "ok": False,
+            "raw": r.get("raw", ""),
+            "error": r.get("error"),
+        }
+
+    rows = r.get("rows", [])
+    if not rows:
+        return {
+            "message": "No rows. Open the query first — then solve it with IF logic.",
+            "ok": False,
+            "raw": r.get("raw", ""),
+        }
+
+    all_vals = [str(v) for row in rows for v in row.values()]
+    blob = " ".join(all_vals)
+    has_flag = "CTF{" in blob
+    used_if = "if(" in lowered
+
+    # Plain UNION dump of secrets.flag without IF → rejected on purpose
+    if has_flag and not used_if:
+        return {
+            "message": (
+                "Flag-shaped data appeared, but this level rejects direct dumps. "
+                "Rebuild the extraction using IF(condition, true_expr, false_expr)."
+            ),
+            "ok": False,
+            "raw": "",  # hide the dumped flag so submit-from-sight is harder
+        }
+
+    if has_flag and used_if:
+        flag_val = next((v for v in all_vals if "CTF{" in v), "")
+        return {
+            "message": f"IF logic satisfied. Secret revealed. Flag: {flag_val}",
+            "ok": True,
+            "raw": r.get("raw", ""),
+        }
+
+    if used_if:
+        return {
+            "message": (
+                "IF() was detected, but the flag is not in the result yet. "
+                "When the condition is true, make true_expr return secrets.flag."
+            ),
+            "ok": False,
+            "raw": r.get("raw", ""),
+        }
+
+    return {
+        "message": (
+            "Rows returned, but only normal columns. "
+            "Plain login / UNION SELECT flag is not enough — use IF() to pull the secret."
+        ),
+        "ok": False,
+        "raw": r.get("raw", ""),
+    }
+
+# ───────────────────────── Level 10 — boolean blind → prove length + 6th char ─────────────────────────
 def handle_10(p: dict) -> dict:
     u = p.get("username", "")
-    q = f"SELECT id FROM users WHERE username = '{u}'"
+
+    # Server-side secret (never shown unless challenge is solved)
+    f = _run(10, "SELECT flag FROM secrets WHERE name = 'level_flag' LIMIT 1")
+    if not f.get("rows"):
+        f = _run(10, "SELECT flag FROM secrets LIMIT 1")
+    flag_val = f["rows"][0].get("flag") if f.get("rows") else ""
+    need_len = len(flag_val) if flag_val else -1
+    need_ch = flag_val[5] if flag_val and len(flag_val) >= 6 else ""
+
+    # Two columns so UNION can carry: length , 6th_char
+    q = f"SELECT id, username FROM users WHERE username = '{u}'"
     r = _run(10, q)
-    # Hide rows — only true/false style message
+
     if r.get("error"):
-        return {"ok": False, "message": "Invalid request", "raw": "Something went wrong."}
-    if r.get("rows"):
-        return {"ok": True, "message": "User exists", "raw": "User exists"}
-    return {"ok": False, "message": "User not found", "raw": "User not found"}
+        return {
+            "ok": False,
+            "message": "Invalid request",
+            "raw": "Something went wrong.",
+        }
 
+    rows = r.get("rows") or []
+    blob = " ".join(str(v) for row in rows for v in row.values())
 
-# ───────────────────────── Level 11 — boolean AND ─────────────────────────
+    # Block direct dump of the flag / secrets contents into the result set
+    if flag_val and flag_val in blob:
+        return {
+            "ok": False,
+            "message": "Direct dump blocked. Enumerate with boolean checks, then prove length + 6th character via UNION.",
+            "raw": "",
+        }
+    if "CTF{" in blob:
+        return {
+            "ok": False,
+            "message": "Direct dump blocked. Do not select the flag column — prove length and the 6th character only.",
+            "raw": "",
+        }
+
+    # Proof step: a returned row whose first two values are (length, 6th_char)
+    for row in rows:
+        vals = list(row.values())
+        if len(vals) < 2:
+            continue
+        got_len = str(vals[0]).strip()
+        got_ch = str(vals[1]).strip()
+        if got_len == str(need_len) and got_ch == need_ch:
+            return {
+                "ok": True,
+                "message": f"Blind solved (length + 6th char verified). Flag: {flag_val}",
+                "raw": "Proof accepted",
+            }
+
+    # Boolean oracle only — no row data
+    if rows:
+        return {
+            "ok": True,
+            "message": "User exists",
+            "raw": "User exists",
+        }
+    return {
+        "ok": False,
+        "message": "User not found",
+        "raw": "User not found",
+    }
+
+# ───────────────────────── Level 11 — limited boolean search + UNION proof ─────────────────────────
+
+def _level11_ensure_state():
+    """secrets.here + attempt counter inside sqli_level_11."""
+    _run(11, """
+        CREATE TABLE IF NOT EXISTS challenge_state (
+            id INT PRIMARY KEY DEFAULT 1,
+            attempts INT NOT NULL DEFAULT 0
+        )
+    """)
+    _run(11, "INSERT IGNORE INTO challenge_state (id, attempts) VALUES (1, 0)")
+
+    # add column here if missing (MySQL/MariaDB)
+    col = _run(
+        11,
+        "SELECT COUNT(*) AS c FROM information_schema.COLUMNS "
+        "WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'secrets' AND COLUMN_NAME = 'here'",
+    )
+    c = 0
+    if col.get("rows"):
+        c = int(list(col["rows"][0].values())[0])
+    if c == 0:
+        _run(11, "ALTER TABLE secrets ADD COLUMN here INT NULL")
+
+    # ensure a row exists and here is seeded in [25, 275]
+    sec = _run(11, "SELECT id, here FROM secrets WHERE name = 'level_flag' LIMIT 1")
+    if not sec.get("rows"):
+        sec = _run(11, "SELECT id, here FROM secrets LIMIT 1")
+    if not sec.get("rows"):
+        _run(11, "INSERT INTO secrets (name, flag, here) VALUES ('level_flag', 'CTF{missing}', 100)")
+        sec = _run(11, "SELECT id, here FROM secrets LIMIT 1")
+
+    row = sec["rows"][0]
+    here_val = row.get("here")
+    if here_val is None or int(here_val) < 25 or int(here_val) > 275:
+        n = random.randint(25, 275)
+        _run(11, f"UPDATE secrets SET here = {n} WHERE id = {int(row['id'])}")
+
+def _level11_get_here() -> int:
+    r = _run(11, "SELECT here FROM secrets WHERE name = 'level_flag' LIMIT 1")
+    if not r.get("rows"):
+        r = _run(11, "SELECT here FROM secrets LIMIT 1")
+    return int(r["rows"][0]["here"])
+
+def _level11_get_attempts() -> int:
+    r = _run(11, "SELECT attempts FROM challenge_state WHERE id = 1")
+    if not r.get("rows"):
+        return 0
+    return int(r["rows"][0]["attempts"])
+
+def _level11_set_attempts(n: int) -> None:
+    _run(11, f"UPDATE challenge_state SET attempts = {int(n)} WHERE id = 1")
+
+def _level11_reroll() -> int:
+    n = random.randint(25, 275)
+    _run(11, f"UPDATE secrets SET here = {n} WHERE name = 'level_flag'")
+    # if name filter matched nothing, update all rows
+    _run(11, f"UPDATE secrets SET here = {n} WHERE here IS NULL OR here < 25 OR here > 275 OR 1=1 LIMIT 1")
+    # simpler reliable update:
+    _run(11, f"UPDATE secrets SET here = {n}")
+    _level11_set_attempts(0)
+    return n
+
 def handle_11(p: dict) -> dict:
-    u = p.get("username", "")
-    q = f"SELECT id FROM users WHERE username = 'admin' AND ({u})"
-    # username field is injected as boolean expression after AND
-    # Actually make it: search param
-    q = f"SELECT id FROM users WHERE username = 'admin' AND {u or '1=0'}"
-    r = _run(11, q)
-    if r.get("error"):
-        return {"ok": False, "message": "Error", "raw": "Invalid"}
-    if r.get("rows"):
-        return {"ok": True, "message": "TRUE", "raw": "Condition is TRUE"}
-    return {"ok": False, "message": "FALSE", "raw": "Condition is FALSE"}
+    u = p.get("username", "") or "1=0"
+    lowered = u.lower()
 
+    _level11_ensure_state()
+
+    # --- budget: every request counts (boolean OR union) ---
+    attempts = _level11_get_attempts() + 1
+    if attempts > 25:
+        _level11_reroll()
+        attempts = 1
+        _level11_set_attempts(attempts)
+        left = 25 - attempts
+        return {
+            "ok": False,
+            "message": (
+                "Query budget exceeded (25). The secret number in secrets.here was re-randomized. "
+                f"Attempts left: {left}"
+            ),
+            "raw": f"Attempts left: {left}",
+        }
+
+    _level11_set_attempts(attempts)
+    left = 25 - attempts
+    here = _level11_get_here()
+
+    # Block dumping the column directly — must binary-search, then prove with a literal
+    if re.search(r"\bhere\b", lowered) and re.search(r"\bunion\b", lowered):
+        return {
+            "ok": False,
+            "message": (
+                f"Dumping secrets.here via UNION is blocked. Compare with < > = first, "
+                f"then UNION a plain number. Attempts left: {left}"
+            ),
+            "raw": f"Attempts left: {left}",
+        }
+    if re.search(r"\bunion\b", lowered) and re.search(r"\bhere\b", lowered):
+            return {
+                "ok": False,
+                "message": (
+                    f"Dumping secrets.here via UNION is blocked. "
+                    f"Compare with < > = , then UNION a plain number. "
+                    f"Attempts left: {left}"
+                ),
+                "raw": f"Attempts left: {left}",
+            }
+
+    # Injection point: boolean expression after AND (no quotes around input)
+    q = f"SELECT id, username FROM users WHERE username = 'admin' AND {u}"
+    r = _run(11, q)
+
+    if r.get("error"):
+        return {
+            "ok": False,
+            "message": f"Invalid expression. Attempts left: {left}",
+            "raw": f"Attempts left: {left}",
+            "error": r.get("error"),
+        }
+
+    rows = r.get("rows") or []
+
+    # Win: UNION proof row whose first cell equals the secret number (literal, not column dump)
+    for row in rows:
+        vals = list(row.values())
+        if not vals:
+            continue
+        try:
+            got = int(str(vals[0]).strip())
+        except ValueError:
+            continue
+        if got == here:
+            # optional: require UNION in payload so plain true-row on id==here can't win accidentally
+            if "union" not in lowered:
+                continue
+            f = _run(11, "SELECT flag FROM secrets WHERE name = 'level_flag' LIMIT 1")
+            if not f.get("rows"):
+                f = _run(11, "SELECT flag FROM secrets LIMIT 1")
+            flag_val = f["rows"][0].get("flag") if f.get("rows") else ""
+            _level11_set_attempts(0)  # soft reset after solve (optional)
+            return {
+                "ok": True,
+                "message": (
+                    f"Correct number ({here}). Budget used wisely. Flag: {flag_val}"
+                    if flag_val
+                    else f"Correct number ({here})."
+                ),
+                "raw": f"Attempts left: {left}",
+            }
+
+    # Boolean oracle only
+    if rows:
+        return {
+            "ok": True,
+            "message": f"TRUE. Attempts left: {left}",
+            "raw": f"Attempts left: {left}",
+        }
+    return {
+        "ok": False,
+        "message": f"FALSE. Attempts left: {left}",
+        "raw": f"Attempts left: {left}",
+    }
 
 # ───────────────────────── Level 12 — length extraction channel ─────────────────────────
 def handle_12(p: dict) -> dict:

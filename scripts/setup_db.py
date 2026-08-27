@@ -4,10 +4,18 @@ SQLi CTF — Database Setup
 Creates 60 isolated databases + meta DB with random unique flags.
 Safe to re-run (idempotent for structure; flags only generated once).
 
-When APP_VERSION changes (bump the constant below after an update),
-setup detects the mismatch, asks the user, then regenerates all flags,
-resets progress/history, updates flags.json, and stores the new version.
+Version manager
+---------------
+Bump APP_VERSION when you ship an update. Register which levels changed
+in MIGRATIONS for that version. On startup, if the DB is behind, only
+those levels (union of all pending migrations) get new flags and are
+un-solved — the rest of the player's progress is kept.
+
+Example: DB at 1.0.1, app at 1.0.9 → applies migrations 1.0.2 … 1.0.9
+and refreshes only the levels listed in those entries.
 """
+
+from __future__ import annotations
 
 import os
 import sys
@@ -26,12 +34,14 @@ if _cfg_path.is_file():
     except Exception:
         _cfg = {}
 
+
 def _get(key, default):
     if key in os.environ:
         return os.environ[key]
     if key in _cfg:
         return _cfg[key]
     return default
+
 
 DB_HOST = str(_get("DB_HOST", "127.0.0.1"))
 DB_PORT = int(_get("DB_PORT", 3306))
@@ -41,18 +51,91 @@ FLAGS_FILE = str(_get("FLAGS_FILE", str(ROOT / "flags.json")))
 
 TOTAL_LEVELS = 60
 
-# Bump this string whenever you ship an update that should invalidate
-# existing flags / progress. Must match what is stored in sqli_ctf_meta.app_version.
-APP_VERSION = "1.0.0"
+APP_VERSION = "1.0.1"
+
+MIGRATIONS: list[dict] = [
+    {
+        "version": "1.0.1",
+        "levels": [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11],
+        "note": "Redesigned early SQLi levels",
+    }
+]
+
+# ---------------------------------------------------------------------------
+# Semver helpers
+# ---------------------------------------------------------------------------
+def parse_version(v: str) -> tuple[int, ...]:
+    """Parse '1.0.9' / '1.0' / '2' → comparable tuple. Non-numeric → (0,)."""
+    if not v or not str(v).strip():
+        return (0,)
+    parts: list[int] = []
+    for p in str(v).strip().split("."):
+        digits = "".join(c for c in p if c.isdigit())
+        parts.append(int(digits) if digits else 0)
+    return tuple(parts) if parts else (0,)
 
 
+def version_lt(a: str, b: str) -> bool:
+    return parse_version(a) < parse_version(b)
+
+
+def version_le(a: str, b: str) -> bool:
+    return parse_version(a) <= parse_version(b)
+
+
+def version_eq(a: str, b: str) -> bool:
+    return parse_version(a) == parse_version(b)
+
+
+def pending_migrations(from_version: str | None, to_version: str) -> list[dict]:
+    """
+    Migrations strictly after from_version and up to to_version (inclusive).
+    If from_version is None (legacy DB with no row), treat as 0.0.0 so ALL
+    registered migrations apply — or full reset if MIGRATIONS is empty.
+    """
+    start = from_version if from_version is not None else "0.0.0"
+    pending = []
+    for m in MIGRATIONS:
+        mv = str(m.get("version", "")).strip()
+        if not mv:
+            continue
+        # start < migration_version <= to_version
+        if version_lt(start, mv) and version_le(mv, to_version):
+            pending.append(m)
+    pending.sort(key=lambda m: parse_version(str(m["version"])))
+    return pending
+
+
+def levels_from_migrations(migs: list[dict]) -> set[int]:
+    """Union of all level ids touched by the given migrations."""
+    out: set[int] = set()
+    for m in migs:
+        levels = m.get("levels", [])
+        if levels == "*" or levels == ["*"]:
+            return set(range(1, TOTAL_LEVELS + 1))
+        for lv in levels:
+            try:
+                n = int(lv)
+            except (TypeError, ValueError):
+                continue
+            if n == 0:
+                # convention: 0 means all levels
+                return set(range(1, TOTAL_LEVELS + 1))
+            if 1 <= n <= TOTAL_LEVELS:
+                out.add(n)
+    return out
+
+
+# ---------------------------------------------------------------------------
+# DB helpers
+# ---------------------------------------------------------------------------
 def wait_for_db(retries=30, delay=2):
     for i in range(retries):
         try:
             conn = pymysql.connect(
                 host=DB_HOST, port=DB_PORT,
                 user=DB_USER, password=DB_PASS,
-                charset="utf8mb4"
+                charset="utf8mb4",
             )
             conn.close()
             print("[+] Database is ready")
@@ -97,7 +180,6 @@ def generate_flags() -> dict:
 
 
 def load_or_create_flags(force_new: bool = False) -> dict:
-    """Load existing flags or generate new ones (persist across restarts)."""
     if force_new:
         return generate_flags()
 
@@ -111,6 +193,29 @@ def load_or_create_flags(force_new: bool = False) -> dict:
         print("[.] flags.json incomplete — regenerating")
 
     return generate_flags()
+
+
+def patch_flags(level_ids: set[int], existing: dict | None = None) -> dict:
+    """Regenerate flags only for level_ids; keep the rest; write flags.json."""
+    flags = dict(existing) if existing else {}
+    if not flags and os.path.exists(FLAGS_FILE):
+        try:
+            with open(FLAGS_FILE, "r") as f:
+                raw = json.load(f)
+            flags = {int(k): v for k, v in raw.items() if str(k).isdigit()}
+        except Exception:
+            flags = {}
+
+    for i in range(1, TOTAL_LEVELS + 1):
+        if i not in flags:
+            flags[i] = gen_flag(i)
+
+    for i in sorted(level_ids):
+        flags[i] = gen_flag(i)
+        print(f"[+] New flag for level {i:02d}")
+
+    save_flags(flags)
+    return flags
 
 
 def create_meta_db():
@@ -139,7 +244,6 @@ def create_meta_db():
             INDEX (level_id)
         )
     """)
-    # Single-row table holding the schema/app version for migration detection
     cur.execute("""
         CREATE TABLE IF NOT EXISTS app_version (
             id INT PRIMARY KEY DEFAULT 1,
@@ -148,14 +252,15 @@ def create_meta_db():
     """)
     cur.execute("SELECT COUNT(*) FROM progress")
     if cur.fetchone()[0] == 0:
-        cur.execute("INSERT INTO progress (id, current_level, solved) VALUES (1, 1, '')")
+        cur.execute(
+            "INSERT INTO progress (id, current_level, solved) VALUES (1, 1, '')"
+        )
     cur.close()
     conn.close()
     print("[+] Meta database ready")
 
 
 def get_stored_version() -> str | None:
-    """Return stored version string, or None if missing / table empty."""
     try:
         conn = get_connection("sqli_ctf_meta")
         cur = conn.cursor()
@@ -206,11 +311,54 @@ def reset_progress_and_history() -> None:
     cur.execute("TRUNCATE TABLE attack_history")
     cur.close()
     conn.close()
-    print("[+] Progress and attack history reset")
+    print("[+] Progress and attack history fully reset")
+
+
+def unsolve_levels(level_ids: set[int]) -> None:
+    """Remove specific levels from solved list; fix current_level; clear their history."""
+    if not level_ids:
+        return
+    conn = get_connection("sqli_ctf_meta")
+    cur = conn.cursor()
+    cur.execute("SELECT current_level, solved FROM progress WHERE id = 1")
+    row = cur.fetchone()
+    solved: list[int] = []
+    current = 1
+    if row:
+        current = int(row[0] or 1)
+        if row[1]:
+            solved = [int(x) for x in str(row[1]).split(",") if x.strip()]
+
+    solved = [x for x in solved if x not in level_ids]
+    # current_level = first unsolved (sequential unlock model)
+    new_current = 1
+    for i in range(1, TOTAL_LEVELS + 1):
+        if i not in solved:
+            new_current = i
+            break
+    else:
+        new_current = TOTAL_LEVELS
+
+    solved_str = ",".join(str(x) for x in sorted(solved))
+    cur.execute(
+        "UPDATE progress SET current_level = %s, solved = %s WHERE id = 1",
+        (new_current, solved_str),
+    )
+    # history only for affected levels
+    placeholders = ",".join(["%s"] * len(level_ids))
+    cur.execute(
+        f"DELETE FROM attack_history WHERE level_id IN ({placeholders})",
+        tuple(sorted(level_ids)),
+    )
+    cur.close()
+    conn.close()
+    print(
+        f"[+] Unsolved levels {sorted(level_ids)}; "
+        f"current_level → {new_current}; history cleared for those levels"
+    )
 
 
 def update_level_flag(level_id: int, flag: str) -> None:
-    """Ensure level DB exists and secrets.flag matches the given flag."""
     db_name = f"sqli_level_{level_id:02d}"
     conn = get_connection()
     cur = conn.cursor()
@@ -280,7 +428,6 @@ def create_level_db(level_id: int, flag: str):
             ("level_flag", flag),
         )
     else:
-        # Keep secrets.flag in sync with flags.json on normal runs too
         cur.execute(
             "UPDATE secrets SET flag = %s WHERE name = %s",
             (flag, "level_flag"),
@@ -290,41 +437,74 @@ def create_level_db(level_id: int, flag: str):
     conn.close()
 
 
-def ask_user_confirm_reset(stored: str | None, current: str) -> bool:
-    """
-    Ask whether to apply version migration (new flags + progress reset).
-    Interactive terminal → prompt. Non-interactive (Docker) → auto-yes with warning.
-    Env SQLI_CTF_SKIP_RESET=1 forces skip; SQLI_CTF_FORCE_RESET=1 forces yes.
-    """
+# ---------------------------------------------------------------------------
+# Version migration flow
+# ---------------------------------------------------------------------------
+def _is_fresh_install() -> bool:
+    try:
+        conn = get_connection("sqli_ctf_meta")
+        cur = conn.cursor()
+        cur.execute("SELECT current_level, solved FROM progress WHERE id = 1")
+        row = cur.fetchone()
+        cur.close()
+        conn.close()
+        return (
+            row is None
+            or (int(row[0] or 1) <= 1 and (not row[1] or str(row[1]).strip() == ""))
+        )
+    except Exception:
+        return True
+
+
+def ask_user_confirm_migration(
+    stored: str | None,
+    current: str,
+    migs: list[dict],
+    affected: set[int],
+    full_reset: bool,
+) -> bool:
     if os.getenv("SQLI_CTF_FORCE_RESET", "").strip() in ("1", "true", "yes"):
-        print("[!] SQLI_CTF_FORCE_RESET=1 → applying reset")
+        print("[!] SQLI_CTF_FORCE_RESET=1 → applying migration")
         return True
     if os.getenv("SQLI_CTF_SKIP_RESET", "").strip() in ("1", "true", "yes"):
-        print("[!] SQLI_CTF_SKIP_RESET=1 → keeping old data")
+        print("[!] SQLI_CTF_SKIP_RESET=1 → skipping migration")
         return False
 
     stored_label = stored if stored is not None else "(none)"
     print()
-    print("!" * 50)
+    print("!" * 56)
     print("  GAME UPDATE DETECTED")
     print(f"  Database version : {stored_label}")
     print(f"  App version      : {current}")
     print()
-    print("  Applying this update will:")
-    print("    • Generate new random flags for all 60 levels")
-    print("    • Update flags.json")
-    print("    • Reset your progress (current level & solved)")
-    print("    • Clear attack history")
-    print("!" * 50)
+    if full_reset:
+        print("  No selective migrations registered for this jump.")
+        print("  Applying FULL reset:")
+        print("    • New flags for all 60 levels")
+        print("    • flags.json rewritten")
+        print("    • All progress + attack history cleared")
+    else:
+        print("  Pending migrations:")
+        for m in migs:
+            note = m.get("note") or ""
+            lv = m.get("levels")
+            print(f"    • v{m['version']}: levels {lv}" + (f" — {note}" if note else ""))
+        print()
+        print(f"  Affected levels ({len(affected)}): {sorted(affected)}")
+        print("  Will:")
+        print("    • Generate new flags only for those levels")
+        print("    • Update flags.json")
+        print("    • Mark those levels unsolved (other progress kept)")
+        print("    • Clear attack history for those levels")
+    print("!" * 56)
 
-    interactive = sys.stdin.isatty()
-    if not interactive:
-        print("[!] Non-interactive session — applying reset automatically.")
-        print("    Set SQLI_CTF_SKIP_RESET=1 to keep old data.")
+    if not sys.stdin.isatty():
+        print("[!] Non-interactive session — applying migration automatically.")
+        print("    Set SQLI_CTF_SKIP_RESET=1 to skip.")
         return True
 
     while True:
-        ans = input("Continue and reset progress? [y/N]: ").strip().lower()
+        ans = input("Apply this update? [y/N]: ").strip().lower()
         if ans in ("y", "yes"):
             return True
         if ans in ("n", "no", ""):
@@ -332,9 +512,8 @@ def ask_user_confirm_reset(stored: str | None, current: str) -> bool:
         print("Please answer y or n.")
 
 
-def apply_version_reset() -> dict:
-    """Regenerate flags, rewrite flags.json, update all secrets, reset meta."""
-    print("[*] Applying version migration / full reset...")
+def apply_full_reset() -> dict:
+    print("[*] Full reset …")
     flags = generate_flags()
     for i in range(1, TOTAL_LEVELS + 1):
         update_level_flag(i, flags[i])
@@ -342,49 +521,70 @@ def apply_version_reset() -> dict:
             print(f"[+] Flags updated for levels 1–{i}")
     reset_progress_and_history()
     set_stored_version(APP_VERSION)
-    print("[+] Version migration complete")
+    print("[+] Full reset complete")
     return flags
 
 
-def check_and_handle_version() -> bool:
+def apply_selective_migration(affected: set[int], existing_flags: dict | None = None) -> dict:
+    print(f"[*] Selective migration for levels: {sorted(affected)}")
+    flags = patch_flags(affected, existing_flags)
+    for i in sorted(affected):
+        update_level_flag(i, flags[i])
+    unsolve_levels(affected)
+    set_stored_version(APP_VERSION)
+    print("[+] Selective migration complete")
+    return flags
+
+
+def check_and_handle_version() -> dict | None:
     """
-    Returns True if a full flag reset was performed (caller should still
-    ensure level structure exists). Returns False if versions already match.
+    Returns updated flags dict if migration ran, else None.
+    Caller should still ensure all level DB structures exist.
     """
     stored = get_stored_version()
-    if stored == APP_VERSION:
+
+    if stored is not None and version_eq(stored, APP_VERSION):
         print(f"[+] App version OK ({APP_VERSION})")
-        return False
+        return None
 
-    # First install (no version row yet) and no progress worth keeping:
-    # if progress is still default empty, just set version without scary prompt.
-    if stored is None:
+    # Brand-new install: no progress → just stamp version, no scary prompt
+    if stored is None and _is_fresh_install():
+        print(f"[+] First setup — setting version to {APP_VERSION}")
+        set_stored_version(APP_VERSION)
+        return None
+
+    # App older than DB (downgrade) — do nothing destructive
+    if stored is not None and version_lt(APP_VERSION, stored):
+        print(
+            f"[!] App version {APP_VERSION} is older than DB {stored}. "
+            "No migration applied."
+        )
+        return None
+
+    migs = pending_migrations(stored, APP_VERSION)
+    affected = levels_from_migrations(migs)
+
+    # Version changed but nothing listed in MIGRATIONS for this jump
+    # → safe default: full reset (so a forgotten migration entry still
+    #   invalidates old flags). Set MIGRATIONS properly to avoid this.
+    full_reset = not affected
+
+    if not ask_user_confirm_migration(stored, APP_VERSION, migs, affected, full_reset):
+        print("[!] Migration skipped. DB version left unchanged.")
+        return None
+
+    if full_reset:
+        return apply_full_reset()
+
+    existing = None
+    if os.path.exists(FLAGS_FILE):
         try:
-            conn = get_connection("sqli_ctf_meta")
-            cur = conn.cursor()
-            cur.execute("SELECT current_level, solved FROM progress WHERE id = 1")
-            row = cur.fetchone()
-            cur.close()
-            conn.close()
-            is_fresh = (
-                row is None
-                or (row[0] <= 1 and (not row[1] or row[1].strip() == ""))
-            )
+            with open(FLAGS_FILE, "r") as f:
+                raw = json.load(f)
+            existing = {int(k): v for k, v in raw.items() if str(k).isdigit()}
         except Exception:
-            is_fresh = True
-
-        if is_fresh:
-            print(f"[+] First setup — setting version to {APP_VERSION}")
-            set_stored_version(APP_VERSION)
-            return False
-
-    if not ask_user_confirm_reset(stored, APP_VERSION):
-        print("[!] Skipping reset. Old flags and progress kept.")
-        print("    (Version in DB still differs from APP_VERSION.)")
-        return False
-
-    apply_version_reset()
-    return True
+            existing = None
+    return apply_selective_migration(affected, existing)
 
 
 def main():
@@ -396,23 +596,20 @@ def main():
     wait_for_db()
     create_meta_db()
 
-    did_reset = check_and_handle_version()
-    flags = load_or_create_flags(force_new=False)
+    migrated_flags = check_and_handle_version()
+    flags = migrated_flags if migrated_flags is not None else load_or_create_flags()
 
-    # If user skipped reset but flags.json was missing, we still generated
-    # flags above via load_or_create_flags — ensure DB secrets match file.
     for i in range(1, TOTAL_LEVELS + 1):
         create_level_db(i, flags[i])
         if i % 10 == 0:
             print(f"[+] Levels 1–{i} ready")
 
-    # Ensure version is set even on clean first run path
     if get_stored_version() is None:
         set_stored_version(APP_VERSION)
 
     print("[+] All 60 level databases ready")
-    if did_reset:
-        print("[+] Setup complete (flags & progress reset due to version change)")
+    if migrated_flags is not None:
+        print("[+] Setup complete (version migration applied)")
     else:
         print("[+] Setup complete")
     print("=" * 50)

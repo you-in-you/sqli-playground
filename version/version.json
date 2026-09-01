@@ -1,0 +1,12 @@
+{
+  "version": "1.0.0",
+  "released": "2026-09-01",
+  "url": "https://github.com/you-in-you/sqli-playground",
+  "changes": [
+    "Initial 1.0.0 release",
+    "60 progressive SQLi levels on MariaDB/MySQL",
+    "CLI toolkit: ensure / install / reinstall / status via ./run.sh",
+    "Remote version check against version/version.json"
+  ],
+  "notes": "After pulling a new release, run: ./run.sh ensure (or ./run.sh install for a full wipe)."
+}

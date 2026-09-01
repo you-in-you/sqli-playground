@@ -49,6 +49,23 @@ def _blocked(msg: str) -> dict[str, Any]:
     return {"ok": False, "message": "Blocked", "raw": msg}
 
 
+
+def _get_flag(level_id: int) -> str:
+    """Fetch flag from level DB (parameterized path via fixed query)."""
+    f = _run(level_id, "SELECT flag FROM secrets WHERE name = 'level_flag' LIMIT 1")
+    if not f.get("rows"):
+        f = _run(level_id, "SELECT flag FROM secrets LIMIT 1")
+    if f.get("rows"):
+        return str(f["rows"][0].get("flag") or "")
+    return ""
+
+
+def _rows_blob(rows) -> str:
+    if not rows:
+        return ""
+    return " ".join(str(v) for row in rows for v in row.values())
+
+
 # ───────────────────────── Level 01 ─────────────────────────
 def handle_01(p: dict) -> dict:
     u, pw = p.get("username", ""), p.get("password", "")
@@ -949,117 +966,610 @@ def handle_15(p: dict) -> dict:
     }
 
 
-# ───────────────────────── Level 16 — type casting / column types ─────────────────────────
+
+# ───────────────────────── Level 16 — Union with Types ─────────────────────────
 def handle_16(p: dict) -> dict:
+    """UNION must align column types (id INT, username/role strings)."""
     u = p.get("username", "")
+    lowered = u.lower()
+
     q = f"SELECT id, username, role FROM users WHERE username = '{u}'"
-    return _run(16, q)
+    r = _run(16, q)
+
+    if r.get("error"):
+        return {
+            "ok": False,
+            "message": "Query error — check column count and types (use NULL/CAST).",
+            "raw": r.get("raw") or str(r.get("error")),
+            "error": r.get("error"),
+        }
+
+    rows = r.get("rows") or []
+    blob = _rows_blob(rows)
+
+    # Require UNION-based extraction (not plain dump of users table alone)
+    if "CTF{" in blob and "union" in lowered:
+        flag_val = _get_flag(16)
+        # Prefer flag from result if present
+        for row in rows:
+            for v in row.values():
+                s = str(v)
+                if s.startswith("CTF{"):
+                    flag_val = s
+                    break
+        return {
+            "ok": True,
+            "message": f"UNION types aligned. Flag: {flag_val}" if flag_val else "UNION types aligned.",
+            "raw": r.get("raw") or "",
+        }
+
+    if len(rows) > 5:
+        return {
+            "ok": False,
+            "message": "Too many rows — do not dump the whole table. Use a precise UNION SELECT.",
+            "raw": "",
+        }
+
+    if rows:
+        return {
+            "ok": False,
+            "message": "Rows returned, but flag not extracted via typed UNION. Match 3 columns (int, str, str).",
+            "raw": r.get("raw") or "",
+        }
+
+    return {
+        "ok": False,
+        "message": "No rows. Try UNION SELECT with matching types (NULL/CAST help).",
+        "raw": r.get("raw") or "",
+    }
 
 
-# ───────────────────────── Level 17 — LIMIT only one row ─────────────────────────
+# ───────────────────────── Level 17 — Union + Limit ─────────────────────────
 def handle_17(p: dict) -> dict:
+    """LIMIT 1 is fixed after WHERE — inject before it or use subquery."""
     u = p.get("username", "")
-    q = f"SELECT id, username, role FROM users WHERE username = '{u}' OR 1=1 LIMIT 1"
-    # Actually injectable before limit
+    lowered = u.lower()
+
     q = f"SELECT id, username, role FROM users WHERE username = '{u}' LIMIT 1"
-    return _run(17, q)
+    r = _run(17, q)
+
+    if r.get("error"):
+        return {
+            "ok": False,
+            "message": "Query error",
+            "raw": r.get("raw") or str(r.get("error")),
+            "error": r.get("error"),
+        }
+
+    rows = r.get("rows") or []
+    blob = _rows_blob(rows)
+
+    # Win: extracted flag appears, or single admin row via injection before LIMIT
+    if "CTF{" in blob:
+        flag_val = next((str(v) for row in rows for v in row.values() if str(v).startswith("CTF{")), _get_flag(17))
+        return {
+            "ok": True,
+            "message": f"Bypassed LIMIT. Flag: {flag_val}",
+            "raw": r.get("raw") or "",
+        }
+
+    if rows and (rows[0].get("username") == "admin" or rows[0].get("role") == "admin"):
+        # Only count as win if injection was used (not plain "admin")
+        if u.strip().lower() == "admin":
+            return {
+                "ok": False,
+                "message": "Admin row visible, but you must inject past LIMIT (not plain username).",
+                "raw": r.get("raw") or "",
+            }
+        flag_val = _get_flag(17)
+        return {
+            "ok": True,
+            "message": f"LIMIT bypassed — admin reached. Flag: {flag_val}",
+            "raw": r.get("raw") or "",
+        }
+
+    if rows:
+        return {
+            "ok": False,
+            "message": "One row returned (LIMIT 1). Inject before LIMIT or use a subquery/UNION trick.",
+            "raw": r.get("raw") or "",
+        }
+
+    return {
+        "ok": False,
+        "message": "No rows. Remember: LIMIT 1 sits after the WHERE clause.",
+        "raw": r.get("raw") or "",
+    }
 
 
-# ───────────────────────── Level 18 — second-order (store then use) ─────────────────────────
+# ───────────────────────── Level 18 — Second-Order Basic ─────────────────────────
 def handle_18(p: dict) -> dict:
-    """Register-like: store username, then profile query uses it unsafely."""
-    action = p.get("password", "view")  # 'save' or 'view'
+    """password=save stores username; password=view runs vulnerable read."""
+    action = (p.get("password") or "view").strip().lower()
     u = p.get("username", "")
     db = level_db(18)
+
     if action == "save":
-        # Store without sanitizing (second-order seed)
         try:
             conn = get_conn(db)
-            with conn.cursor() as cur:
-                cur.execute("CREATE TABLE IF NOT EXISTS profiles (id INT PRIMARY KEY, name VARCHAR(256))")
-                cur.execute("DELETE FROM profiles WHERE id = 1")
-                cur.execute(f"INSERT INTO profiles (id, name) VALUES (1, '{u}')")
-            conn.close()
-            return {"ok": True, "message": "Profile saved", "raw": f"Saved name={u}"}
+            try:
+                with conn.cursor() as cur:
+                    cur.execute(
+                        "CREATE TABLE IF NOT EXISTS profiles ("
+                        "id INT PRIMARY KEY, name VARCHAR(512))"
+                    )
+                    cur.execute("DELETE FROM profiles WHERE id = 1")
+                    # intentionally vulnerable insert
+                    cur.execute(f"INSERT INTO profiles (id, name) VALUES (1, '{u}')")
+                    conn.commit()
+            finally:
+                conn.close()
+            return {
+                "ok": True,
+                "message": "Profile saved. Now set password=view to trigger the query.",
+                "raw": f"Saved name length={len(u)}",
+            }
         except Exception as e:
             return {"ok": False, "message": "Save failed", "raw": str(e), "error": str(e)}
-    # view — vulnerable read of stored value
-    q = "SELECT id, username, role FROM users WHERE username = (SELECT name FROM profiles WHERE id = 1)"
-    return _run(18, q)
+
+    # view path
+    q = (
+        "SELECT id, username, role FROM users WHERE username = "
+        "(SELECT name FROM profiles WHERE id = 1 LIMIT 1)"
+    )
+    r = _run(18, q)
+
+    if r.get("error"):
+        # Second-order can break syntax — surface error for learning
+        err = str(r.get("error") or "")
+        if "CTF{" in err:
+            flag_val = _get_flag(18)
+            return {
+                "ok": True,
+                "message": f"Second-order error channel worked. Flag: {flag_val}",
+                "raw": err,
+                "error": err,
+            }
+        return {
+            "ok": False,
+            "message": "Query error on view — check stored payload syntax.",
+            "raw": r.get("raw") or err,
+            "error": err,
+        }
+
+    rows = r.get("rows") or []
+    blob = _rows_blob(rows)
+
+    if "CTF{" in blob:
+        flag_val = next((str(v) for row in rows for v in row.values() if str(v).startswith("CTF{")), _get_flag(18))
+        return {
+            "ok": True,
+            "message": f"Second-order extraction successful. Flag: {flag_val}",
+            "raw": r.get("raw") or "",
+        }
+
+    if any(row.get("username") == "admin" or row.get("role") == "admin" for row in rows):
+        # Stored payload caused admin match
+        if "admin" in (u or "").lower() and action != "save":
+            # could be leftover store
+            pass
+        flag_val = _get_flag(18)
+        return {
+            "ok": True,
+            "message": f"Second-order login as admin. Flag: {flag_val}",
+            "raw": r.get("raw") or "",
+        }
+
+    if len(rows) > 3:
+        return {
+            "ok": False,
+            "message": "Too many rows — target a precise second-order payload, do not dump.",
+            "raw": "",
+        }
+
+    return {
+        "ok": False,
+        "message": "View executed. Save a payload that breaks out when the subquery is inlined.",
+        "raw": r.get("raw") or "",
+    }
 
 
-# ───────────────────────── Level 19 — cookie injection ─────────────────────────
+# ───────────────────────── Level 19 — Cookie Injection ─────────────────────────
 def handle_19(p: dict) -> dict:
-    # cookie value passed as username field from frontend (or cookie key)
     cookie = p.get("username", p.get("cookie", "guest"))
+    lowered = cookie.lower()
+
     q = f"SELECT id, username, role FROM users WHERE username = '{cookie}'"
-    return _run(19, q)
+    r = _run(19, q)
+
+    if r.get("error"):
+        return {
+            "ok": False,
+            "message": "Query error",
+            "raw": r.get("raw") or str(r.get("error")),
+            "error": r.get("error"),
+        }
+
+    rows = r.get("rows") or []
+    blob = _rows_blob(rows)
+
+    if "CTF{" in blob:
+        flag_val = next((str(v) for row in rows for v in row.values() if str(v).startswith("CTF{")), _get_flag(19))
+        return {
+            "ok": True,
+            "message": f"Cookie injection extracted flag. Flag: {flag_val}",
+            "raw": r.get("raw") or "",
+        }
+
+    if any(row.get("username") == "admin" or row.get("role") == "admin" for row in rows):
+        if cookie.strip().lower() == "admin":
+            return {
+                "ok": False,
+                "message": "Plain admin cookie is not enough — inject through the cookie value.",
+                "raw": r.get("raw") or "",
+            }
+        flag_val = _get_flag(19)
+        return {
+            "ok": True,
+            "message": f"Cookie forged as admin. Flag: {flag_val}",
+            "raw": r.get("raw") or "",
+        }
+
+    if len(rows) >= 2:
+        flag_val = _get_flag(19)
+        return {
+            "ok": True,
+            "message": f"Cookie injection returned multiple rows. Flag: {flag_val}",
+            "raw": r.get("raw") or "",
+        }
+
+    if len(rows) > 3:
+        return {
+            "ok": False,
+            "message": "Too many rows — do not dump. Target admin or extract the flag.",
+            "raw": "",
+        }
+
+    return {
+        "ok": False,
+        "message": "Cookie accepted but not privileged. Inject into the cookie-like field (username).",
+        "raw": r.get("raw") or "",
+    }
 
 
-# ───────────────────────── Level 20 — header / user-agent ─────────────────────────
+# ───────────────────────── Level 20 — Header Injection ─────────────────────────
 def handle_20(p: dict) -> dict:
     ua = p.get("username", p.get("user_agent", "Mozilla"))
-    q = f"SELECT id, username FROM users WHERE username = '{ua}' LIMIT 1"
-    return _run(20, q)
+    lowered = ua.lower()
+
+    q = f"SELECT id, username, role FROM users WHERE username = '{ua}' LIMIT 5"
+    r = _run(20, q)
+
+    if r.get("error"):
+        return {
+            "ok": False,
+            "message": "Query error",
+            "raw": r.get("raw") or str(r.get("error")),
+            "error": r.get("error"),
+        }
+
+    rows = r.get("rows") or []
+    blob = _rows_blob(rows)
+
+    if "CTF{" in blob:
+        flag_val = next((str(v) for row in rows for v in row.values() if str(v).startswith("CTF{")), _get_flag(20))
+        return {
+            "ok": True,
+            "message": f"Header injection worked. Flag: {flag_val}",
+            "raw": r.get("raw") or "",
+        }
+
+    if any(row.get("username") == "admin" or row.get("role") == "admin" for row in rows):
+        if ua.strip().lower() == "admin":
+            return {
+                "ok": False,
+                "message": "Plain admin is not the intended path — inject via User-Agent field.",
+                "raw": r.get("raw") or "",
+            }
+        flag_val = _get_flag(20)
+        return {
+            "ok": True,
+            "message": f"User-Agent forged. Flag: {flag_val}",
+            "raw": r.get("raw") or "",
+        }
+
+    if len(rows) >= 2:
+        flag_val = _get_flag(20)
+        return {
+            "ok": True,
+            "message": f"Header injection multi-row. Flag: {flag_val}",
+            "raw": r.get("raw") or "",
+        }
+
+    if len(rows) > 3:
+        return {
+            "ok": False,
+            "message": "Too many rows — refine the payload.",
+            "raw": "",
+        }
+
+    return {
+        "ok": False,
+        "message": "Header processed. Inject SQLi into the User-Agent-like field.",
+        "raw": r.get("raw") or "",
+    }
 
 
-# ───────────────────────── Level 21 — JSON-like value ─────────────────────────
+# ───────────────────────── Level 21 — JSON Body SQLi ─────────────────────────
 def handle_21(p: dict) -> dict:
-    # Simulate JSON body field "user"
     u = p.get("username", "")
     q = f"SELECT id, username, role FROM users WHERE username = '{u}'"
-    return _run(21, q)
+
+    r = _run(21, q)
+    if r.get("error"):
+        return {
+            "ok": False,
+            "message": "Query error",
+            "raw": r.get("raw") or str(r.get("error")),
+            "error": r.get("error"),
+        }
+
+    rows = r.get("rows") or []
+    blob = _rows_blob(rows)
+
+    if "CTF{" in blob:
+        flag_val = next((str(v) for row in rows for v in row.values() if str(v).startswith("CTF{")), _get_flag(21))
+        return {
+            "ok": True,
+            "message": f"JSON field injection succeeded. Flag: {flag_val}",
+            "raw": r.get("raw") or "",
+        }
+
+    if rows and (rows[0].get("username") == "admin" or rows[0].get("role") == "admin"):
+        if u.strip().lower() == "admin":
+            return {
+                "ok": False,
+                "message": "Need injection in the JSON user value, not a plain admin string.",
+                "raw": r.get("raw") or "",
+            }
+        flag_val = _get_flag(21)
+        return {
+            "ok": True,
+            "message": f"JSON user escalated. Flag: {flag_val}",
+            "raw": r.get("raw") or "",
+        }
+
+    if len(rows) > 3:
+        return {
+            "ok": False,
+            "message": "Too many rows — do not dump the table.",
+            "raw": "",
+        }
+
+    return {
+        "ok": False,
+        "message": "JSON value concatenated into query. Extract flag or become admin.",
+        "raw": r.get("raw") or "",
+    }
 
 
-# ───────────────────────── Level 22 — time + filter ─────────────────────────
+# ───────────────────────── Level 22 — Blind Time + Filter ─────────────────────────
 def handle_22(p: dict) -> dict:
     u = p.get("username", "")
-    if re.search(r"(?i)\bsleep\b|\bbenchmark\b", u):
-        return _blocked("Time functions blocked by filter")
+    lowered = u.lower()
+
+    if re.search(r"(?i)\bsleep\s*\(|\bbenchmark\s*\(", u):
+        return _blocked("SLEEP/BENCHMARK are filtered. Obfuscate or use another delay.")
+
     q = f"SELECT id FROM users WHERE username = '{u}'"
     start = time.time()
     r = _run(22, q)
-    r["raw"] = (r.get("raw") or "") + f"\n[elapsed: {time.time()-start:.2f}s]"
-    return r
+    elapsed = time.time() - start
+
+    if r.get("error"):
+        return {
+            "ok": False,
+            "message": "Query error",
+            "raw": f"{r.get('raw')}\n[elapsed: {elapsed:.2f}s]",
+            "error": r.get("error"),
+        }
+
+    # Win on deliberate delay > 1.5s (obfuscated sleep / heavy query)
+    if elapsed > 1.5:
+        flag_val = _get_flag(22)
+        return {
+            "ok": True,
+            "message": f"Time channel confirmed ({elapsed:.2f}s). Flag: {flag_val}",
+            "raw": f"elapsed={elapsed:.2f}s",
+        }
+
+    # Hide row dumps — this is a time-oriented level
+    return {
+        "ok": False,
+        "message": f"Done in {elapsed:.2f}s — need a measurable delay (>1.5s) despite the filter.",
+        "raw": f"elapsed={elapsed:.2f}s",
+    }
 
 
-# ───────────────────────── Level 23 — ORDER BY injection ─────────────────────────
+# ───────────────────────── Level 23 — Order By Injection ─────────────────────────
 def handle_23(p: dict) -> dict:
     order = p.get("username", "id")
+    lowered = order.lower()
+
+    # Block obvious full dumps via ORDER BY subquery that returns many rows elsewhere
     q = f"SELECT id, username, role FROM users ORDER BY {order}"
-    return _run(23, q)
+    r = _run(23, q)
+
+    if r.get("error"):
+        err = str(r.get("error") or "")
+        if "CTF{" in err:
+            flag_val = _get_flag(23)
+            return {
+                "ok": True,
+                "message": f"ORDER BY error-based extraction. Flag: {flag_val}",
+                "raw": err,
+                "error": err,
+            }
+        return {
+            "ok": False,
+            "message": "ORDER BY error — useful for enumeration.",
+            "raw": r.get("raw") or err,
+            "error": err,
+        }
+
+    rows = r.get("rows") or []
+    blob = _rows_blob(rows)
+
+    if "CTF{" in blob:
+        flag_val = next((str(v) for row in rows for v in row.values() if str(v).startswith("CTF{")), _get_flag(23))
+        return {
+            "ok": True,
+            "message": f"ORDER BY injection extracted data. Flag: {flag_val}",
+            "raw": r.get("raw") or "",
+        }
+
+    # Boolean-style: CASE WHEN forces different order; detect marker technique
+    if "case" in lowered and "when" in lowered and rows:
+        # soft success path: player demonstrated CASE control — still need flag
+        return {
+            "ok": False,
+            "message": "CASE/WHEN observed in ORDER BY. Use it to extract secrets.flag (error or subquery).",
+            "raw": f"Rows: {len(rows)}",
+        }
+
+    if len(rows) > 10:
+        return {
+            "ok": False,
+            "message": "Result set too large — keep ORDER BY extraction focused.",
+            "raw": "",
+        }
+
+    return {
+        "ok": False,
+        "message": "ORDER BY is injectable. Try CASE, errors, or subqueries to reach secrets.",
+        "raw": r.get("raw") or "",
+    }
 
 
-# ───────────────────────── Level 24 — HAVING ─────────────────────────
+# ───────────────────────── Level 24 — Group By / Having ─────────────────────────
 def handle_24(p: dict) -> dict:
     having = p.get("username", "1=1")
+    lowered = having.lower()
+
     q = f"SELECT role, COUNT(*) AS c FROM users GROUP BY role HAVING {having}"
-    return _run(24, q)
+    r = _run(24, q)
+
+    if r.get("error"):
+        err = str(r.get("error") or "")
+        if "CTF{" in err:
+            flag_val = _get_flag(24)
+            return {
+                "ok": True,
+                "message": f"HAVING error-based extraction. Flag: {flag_val}",
+                "raw": err,
+                "error": err,
+            }
+        return {
+            "ok": False,
+            "message": "HAVING clause error",
+            "raw": r.get("raw") or err,
+            "error": err,
+        }
+
+    rows = r.get("rows") or []
+    blob = _rows_blob(rows)
+
+    if "CTF{" in blob:
+        flag_val = next((str(v) for row in rows for v in row.values() if str(v).startswith("CTF{")), _get_flag(24))
+        return {
+            "ok": True,
+            "message": f"HAVING injection succeeded. Flag: {flag_val}",
+            "raw": r.get("raw") or "",
+        }
+
+    # Win if player forces a true condition that proves subquery on secrets
+    if "secrets" in lowered and rows:
+        flag_val = _get_flag(24)
+        return {
+            "ok": True,
+            "message": f"HAVING touched secrets. Flag: {flag_val}",
+            "raw": r.get("raw") or "",
+        }
+
+    return {
+        "ok": False,
+        "message": "HAVING is injectable. Boolean/subquery against secrets to extract the flag.",
+        "raw": r.get("raw") or "",
+    }
 
 
-# ───────────────────────── Level 25 — stacked queries ─────────────────────────
+# ───────────────────────── Level 25 — Stacked Queries ─────────────────────────
 def handle_25(p: dict) -> dict:
     u = p.get("username", "")
-    q = f"SELECT id, username FROM users WHERE username = '{u}'"
-    # pymysql may allow multi if configured — try execute with multi
+    q = f"SELECT id, username, role FROM users WHERE username = '{u}'"
+
+    # Allow stacked statements (pymysql multi)
     db = level_db(25)
     try:
         conn = get_conn(db)
         try:
             with conn.cursor() as cur:
-                # Enable multi statements via client flag simulation: split on ;
                 parts = [x.strip() for x in q.split(";") if x.strip()]
+                if len(parts) > 4:
+                    return {
+                        "ok": False,
+                        "message": "Too many stacked statements (max 4).",
+                        "raw": "",
+                    }
                 results = []
+                last_rows = []
                 for part in parts:
                     cur.execute(part)
                     try:
-                        results.append(cur.fetchall())
+                        rows = cur.fetchall()
+                        results.append(rows)
+                        last_rows = rows
                     except Exception:
-                        results.append(f"(affected ok)")
+                        results.append("(ok non-select)")
+                        last_rows = []
+                conn.commit()
+                blob = _rows_blob(last_rows) if last_rows else ""
+                # Also scan all result sets
+                all_blob = " ".join(_rows_blob(r) if isinstance(r, list) else "" for r in results)
+
+                if "CTF{" in all_blob or "CTF{" in blob:
+                    flag_val = _get_flag(25)
+                    for rset in results:
+                        if isinstance(rset, list):
+                            for row in rset:
+                                for v in row.values():
+                                    if str(v).startswith("CTF{"):
+                                        flag_val = str(v)
+                    return {
+                        "ok": True,
+                        "message": f"Stacked query extracted flag. Flag: {flag_val}",
+                        "raw": f"Results: {results}",
+                    }
+
+                # Detect that a second statement ran successfully
+                if len(parts) >= 2:
+                    return {
+                        "ok": False,
+                        "message": "Stacked statements ran. Use a second SELECT against secrets for the flag.",
+                        "raw": f"Statements: {len(parts)}; last={last_rows}",
+                    }
+
+                if len(last_rows) > 3:
+                    return {
+                        "ok": False,
+                        "message": "Too many rows — stack a precise SELECT, do not dump users.",
+                        "raw": "",
+                    }
+
                 return {
-                    "ok": True,
-                    "message": "Executed",
-                    "raw": f"Query: {q}\n\nResults: {results}",
+                    "ok": False,
+                    "message": "Single statement only. Terminate with ; and append another query.",
+                    "raw": f"Result: {last_rows}",
                 }
         finally:
             conn.close()
@@ -1067,323 +1577,1987 @@ def handle_25(p: dict) -> dict:
         return {
             "ok": False,
             "message": "Database error",
-            "raw": f"Query: {q}\n\nError: {e}",
+            "raw": f"Query: {q}\nError: {e}",
             "error": str(e),
         }
 
 
-# ───────────────────────── Level 26 — OOB simulated (extract via error / into outfile blocked) ─────────────────────────
+# ───────────────────────── Level 26 — Out-of-Band Surface ─────────────────────────
 def handle_26(p: dict) -> dict:
+    """OOB simulated: prefer error-based extraction; classic SELECT still works but limited."""
     u = p.get("username", "")
-    q = f"SELECT id, username FROM users WHERE username = '{u}'"
-    return _run(26, q)
+    lowered = u.lower()
 
+    if re.search(r"(?i)into\s+outfile|load_file\s*\(", u):
+        return _blocked("OUTFILE / LOAD_FILE are disabled in this lab.")
 
-# ───────────────────────── Level 27 — WAF keywords ─────────────────────────
-def handle_27(p: dict) -> dict:
-    u = p.get("username", "")
-    banned = ["union", "select", "from", "where", "or", "and", "information_schema"]
-    low = u.lower()
-    for w in banned:
-        if w in low:
-            return _blocked(f"WAF: keyword '{w}' denied")
     q = f"SELECT id, username, role FROM users WHERE username = '{u}'"
-    return _run(27, q)
+    r = _run(26, q)
 
+    err = str(r.get("error") or "")
+    if "CTF{" in err:
+        flag_val = _get_flag(26)
+        return {
+            "ok": True,
+            "message": f"Error-channel extraction (OOB-style). Flag: {flag_val}",
+            "raw": err,
+            "error": err,
+        }
 
-# ───────────────────────── Level 28 — app decodes once; double encoding needed conceptually ─────────────────────────
-def handle_28(p: dict) -> dict:
-    import urllib.parse
-    u = p.get("username", "")
-    # Decode once (simulate)
-    try:
-        u = urllib.parse.unquote(u)
-    except Exception:
-        pass
-    q = f"SELECT id, username, role FROM users WHERE username = '{u}'"
-    return _run(28, q)
-
-
-# ───────────────────────── Level 29 — numeric tricks ─────────────────────────
-def handle_29(p: dict) -> dict:
-    uid = p.get("username", "1")
-    # weak filter: block if contains space or quote
-    if "'" in uid or " " in uid or ";" in uid:
-        return _blocked("Invalid characters in id")
-    q = f"SELECT id, username, role FROM users WHERE id = {uid}"
-    return _run(29, q)
-
-
-# ───────────────────────── Level 30 — inline comments bypass ─────────────────────────
-def handle_30(p: dict) -> dict:
-    u = p.get("username", "")
-    # blacklist whole words only
-    if re.search(r"(?i)\bunion\b|\bselect\b", u):
-        return _blocked("Keywords union/select blocked")
-    q = f"SELECT id, username, role FROM users WHERE username = '{u}'"
-    return _run(30, q)
-
-
-# ───────────────────────── Level 31 — advanced boolean (content-length style minimal) ─────────────────────────
-def handle_31(p: dict) -> dict:
-    expr = p.get("username", "0")
-    q = f"SELECT id FROM secrets WHERE IF(({expr}), 1, 0) = 1"
-    r = _run(31, q)
     if r.get("error"):
-        return {"ok": False, "message": "err", "raw": "."}
+        return {
+            "ok": False,
+            "message": "Error surfaced — dig for data inside it.",
+            "raw": r.get("raw") or err,
+            "error": err,
+        }
+
+    rows = r.get("rows") or []
+    blob = _rows_blob(rows)
+    if "CTF{" in blob:
+        flag_val = next((str(v) for row in rows for v in row.values() if str(v).startswith("CTF{")), _get_flag(26))
+        return {
+            "ok": True,
+            "message": f"Extracted via query channel. Flag: {flag_val}",
+            "raw": r.get("raw") or "",
+        }
+
+    if len(rows) > 3:
+        return {
+            "ok": False,
+            "message": "Too many rows. Prefer error-based / precise extraction over dumps.",
+            "raw": "",
+        }
+
     return {
-        "ok": bool(r.get("rows")),
-        "message": "1" if r.get("rows") else "0",
-        "raw": "1" if r.get("rows") else "0",
+        "ok": False,
+        "message": "OOB sinks are blocked; use error-based or tight UNION instead.",
+        "raw": r.get("raw") or "",
     }
 
 
-# ───────────────────────── Level 32 — time filter strong ─────────────────────────
+# ───────────────────────── Level 27 — WAF Simple Keywords ─────────────────────────
+def handle_27(p: dict) -> dict:
+    u = p.get("username", "")
+    # Keyword WAF on contiguous words — UN/**/ION bypasses because comments break the token
+    banned = ["union", "select", "from", "where", "or", "and", "information_schema"]
+    low = u.lower()
+    for w in banned:
+        if re.search(rf"(?<![a-z_]){re.escape(w)}(?![a-z_])", low):
+            return _blocked(f"WAF: keyword '{w}' denied — try obfuscation (comments/case).")
+
+    q = f"SELECT id, username, role FROM users WHERE username = '{u}'"
+    r = _run(27, q)
+
+    if r.get("error"):
+        return {
+            "ok": False,
+            "message": "Query error after WAF",
+            "raw": r.get("raw") or str(r.get("error")),
+            "error": r.get("error"),
+        }
+
+    rows = r.get("rows") or []
+    blob = _rows_blob(rows)
+    if "CTF{" in blob:
+        flag_val = next((str(v) for row in rows for v in row.values() if str(v).startswith("CTF{")), _get_flag(27))
+        return {
+            "ok": True,
+            "message": f"WAF bypassed. Flag: {flag_val}",
+            "raw": r.get("raw") or "",
+        }
+
+    if rows and (rows[0].get("username") == "admin" or rows[0].get("role") == "admin"):
+        if u.strip().lower() == "admin":
+            return {
+                "ok": False,
+                "message": "Plain admin does not teach WAF bypass.",
+                "raw": r.get("raw") or "",
+            }
+        flag_val = _get_flag(27)
+        return {
+            "ok": True,
+            "message": f"WAF bypassed (admin). Flag: {flag_val}",
+            "raw": r.get("raw") or "",
+        }
+
+    if len(rows) > 3:
+        return {
+            "ok": False,
+            "message": "Too many rows — targeted extraction only.",
+            "raw": "",
+        }
+
+    return {
+        "ok": False,
+        "message": "WAF is active on common keywords. Obfuscate (e.g. UN/**/ION).",
+        "raw": r.get("raw") or "",
+    }
+
+
+# ───────────────────────── Level 28 — Double Encoding ─────────────────────────
+def handle_28(p: dict) -> dict:
+    raw_u = p.get("username", "")
+    # App decodes exactly once
+    try:
+        u = urllib.parse.unquote(raw_u)
+    except Exception:
+        u = raw_u
+
+    q = f"SELECT id, username, role FROM users WHERE username = '{u}'"
+    r = _run(28, q)
+
+    if r.get("error"):
+        return {
+            "ok": False,
+            "message": "Query error",
+            "raw": r.get("raw") or str(r.get("error")),
+            "error": r.get("error"),
+        }
+
+    rows = r.get("rows") or []
+    blob = _rows_blob(rows)
+
+    if "CTF{" in blob:
+        flag_val = next((str(v) for row in rows for v in row.values() if str(v).startswith("CTF{")), _get_flag(28))
+        return {
+            "ok": True,
+            "message": f"Encoding bypass worked. Flag: {flag_val}",
+            "raw": r.get("raw") or "",
+        }
+
+    if rows and (rows[0].get("username") == "admin" or rows[0].get("role") == "admin"):
+        if u.strip().lower() == "admin" and "%" not in raw_u:
+            return {
+                "ok": False,
+                "message": "Use encoding so the injection appears only after one URL-decode.",
+                "raw": r.get("raw") or "",
+            }
+        flag_val = _get_flag(28)
+        return {
+            "ok": True,
+            "message": f"Decoded injection succeeded. Flag: {flag_val}",
+            "raw": r.get("raw") or "",
+        }
+
+    if len(rows) > 3:
+        return {
+            "ok": False,
+            "message": "Too many rows — refine the encoded payload.",
+            "raw": "",
+        }
+
+    return {
+        "ok": False,
+        "message": "Input is URL-decoded once before the query. Double-encode special characters.",
+        "raw": r.get("raw") or "",
+    }
+
+
+# ───────────────────────── Level 29 — Scientific Notation / numeric tricks ─────────────────────────
+def handle_29(p: dict) -> dict:
+    uid = p.get("username", "1")
+    if "'" in uid or " " in uid or ";" in uid or '"' in uid:
+        return _blocked("Invalid characters in id (no spaces/quotes/semicolon)")
+
+    q = f"SELECT id, username, role FROM users WHERE id = {uid}"
+    r = _run(29, q)
+
+    if r.get("error"):
+        return {
+            "ok": False,
+            "message": "Query error",
+            "raw": r.get("raw") or str(r.get("error")),
+            "error": r.get("error"),
+        }
+
+    rows = r.get("rows") or []
+    blob = _rows_blob(rows)
+
+    if "CTF{" in blob:
+        flag_val = next((str(v) for row in rows for v in row.values() if str(v).startswith("CTF{")), _get_flag(29))
+        return {
+            "ok": True,
+            "message": f"Numeric injection worked. Flag: {flag_val}",
+            "raw": r.get("raw") or "",
+        }
+
+    # OR-style without spaces: 1OR1=1 / 1||1=1 / 1oRtrue
+    if len(rows) >= 2:
+        flag_val = _get_flag(29)
+        return {
+            "ok": True,
+            "message": f"Numeric logic bypass (multi-row). Flag: {flag_val}",
+            "raw": r.get("raw") or "",
+        }
+
+    if rows and (rows[0].get("username") == "admin" or rows[0].get("role") == "admin"):
+        flag_val = _get_flag(29)
+        return {
+            "ok": True,
+            "message": f"Targeted numeric bypass. Flag: {flag_val}",
+            "raw": r.get("raw") or "",
+        }
+
+    return {
+        "ok": False,
+        "message": "Numeric context only — no spaces/quotes. Try operators without spaces (OR, ||, scientific notation).",
+        "raw": r.get("raw") or "",
+    }
+
+
+# ───────────────────────── Level 30 — Inline Comments Bypass ─────────────────────────
+def handle_30(p: dict) -> dict:
+    u = p.get("username", "")
+    # Blacklist whole words only — inline comments can split them
+    if re.search(r"(?i)\bunion\b|\bselect\b|\bor\b|\band\b", u):
+        # Allow if comments break the word in the raw payload for execution,
+        # but the regex above already sees comments as non-word... actually
+        # UN/**/ION does NOT match \bunion\b — good.
+        return _blocked("Bare keyword blocked — split with inline comments /* */")
+
+    q = f"SELECT id, username, role FROM users WHERE username = '{u}'"
+    r = _run(30, q)
+
+    if r.get("error"):
+        return {
+            "ok": False,
+            "message": "Query error",
+            "raw": r.get("raw") or str(r.get("error")),
+            "error": r.get("error"),
+        }
+
+    rows = r.get("rows") or []
+    blob = _rows_blob(rows)
+
+    if "CTF{" in blob:
+        flag_val = next((str(v) for row in rows for v in row.values() if str(v).startswith("CTF{")), _get_flag(30))
+        return {
+            "ok": True,
+            "message": f"Inline-comment bypass worked. Flag: {flag_val}",
+            "raw": r.get("raw") or "",
+        }
+
+    if rows and (rows[0].get("username") == "admin" or rows[0].get("role") == "admin"):
+        if u.strip().lower() == "admin":
+            return {
+                "ok": False,
+                "message": "Demonstrate keyword obfuscation with /* */, not plain admin.",
+                "raw": r.get("raw") or "",
+            }
+        flag_val = _get_flag(30)
+        return {
+            "ok": True,
+            "message": f"Comment-obfuscated injection succeeded. Flag: {flag_val}",
+            "raw": r.get("raw") or "",
+        }
+
+    if len(rows) > 3:
+        return {
+            "ok": False,
+            "message": "Too many rows — precise extraction only.",
+            "raw": "",
+        }
+
+    return {
+        "ok": False,
+        "message": "Whole-word blacklist is active. Use inline comments inside keywords.",
+        "raw": r.get("raw") or "",
+    }
+
+
+# ───────────────────────── Level 31 — Advanced Boolean ─────────────────────────
+def handle_31(p: dict) -> dict:
+    expr = p.get("username", "0")
+    # Expression against secrets — boolean only
+    q = f"SELECT id FROM secrets WHERE IF(({expr}), 1, 0) = 1 LIMIT 1"
+    r = _run(31, q)
+
+    if r.get("error"):
+        return {"ok": False, "message": "0", "raw": "0", "error": r.get("error")}
+
+    bit = "1" if r.get("rows") else "0"
+
+    # Win when player proves knowledge of full flag via exact match expression
+    lowered = expr.lower().replace(" ", "")
+    if "flag=" in lowered or "flaglike" in lowered:
+        # If condition true and references flag equality — accept
+        if bit == "1" and "ctf{" in lowered:
+            flag_val = _get_flag(31)
+            return {
+                "ok": True,
+                "message": f"Boolean proof accepted. Flag: {flag_val}",
+                "raw": "1",
+            }
+
+    return {
+        "ok": True if bit == "1" else False,
+        "message": bit,
+        "raw": bit,
+    }
+
+
+# ───────────────────────── Level 32 — Time-Based Heavy Filter ─────────────────────────
 def handle_32(p: dict) -> dict:
     u = p.get("username", "")
-    if re.search(r"(?i)sleep|benchmark|get_lock|wait", u):
-        return _blocked("Delay functions are blocked")
+    if re.search(r"(?i)sleep|benchmark|get_lock|wait_for|pg_sleep", u):
+        return _blocked("Common delay functions are blocked")
+
     q = f"SELECT id FROM users WHERE username = '{u}'"
     start = time.time()
     r = _run(32, q)
-    r["raw"] = (r.get("raw") or "") + f"\n[elapsed: {time.time()-start:.2f}s]"
-    return r
+    elapsed = time.time() - start
+
+    if r.get("error"):
+        return {
+            "ok": False,
+            "message": "Query error",
+            "raw": f"{r.get('raw')}\n[elapsed: {elapsed:.2f}s]",
+            "error": r.get("error"),
+        }
+
+    if elapsed > 1.5:
+        flag_val = _get_flag(32)
+        return {
+            "ok": True,
+            "message": f"Alternative delay worked ({elapsed:.2f}s). Flag: {flag_val}",
+            "raw": f"elapsed={elapsed:.2f}s",
+        }
+
+    return {
+        "ok": False,
+        "message": f"Finished in {elapsed:.2f}s. Delay functions blocked — find another slow path.",
+        "raw": f"elapsed={elapsed:.2f}s",
+    }
 
 
-# ───────────────────────── Level 33 — second-order advanced ─────────────────────────
+# ───────────────────────── Level 33 — Second-Order Advanced ─────────────────────────
 def handle_33(p: dict) -> dict:
-    return handle_18(p)  # same pattern, different DB isolation
+    """Same two-step pattern as 18, isolated DB, slightly stricter win."""
+    action = (p.get("password") or "view").strip().lower()
+    u = p.get("username", "")
+    db = level_db(33)
+
+    if action == "save":
+        try:
+            conn = get_conn(db)
+            try:
+                with conn.cursor() as cur:
+                    cur.execute(
+                        "CREATE TABLE IF NOT EXISTS profiles ("
+                        "id INT PRIMARY KEY, name VARCHAR(512))"
+                    )
+                    cur.execute("DELETE FROM profiles WHERE id = 1")
+                    cur.execute(f"INSERT INTO profiles (id, name) VALUES (1, '{u}')")
+                    conn.commit()
+            finally:
+                conn.close()
+            return {
+                "ok": True,
+                "message": "Stored. Use password=view to execute the second-order query.",
+                "raw": f"saved_len={len(u)}",
+            }
+        except Exception as e:
+            return {"ok": False, "message": "Save failed", "raw": str(e), "error": str(e)}
+
+    q = (
+        "SELECT id, username, role FROM users WHERE username = "
+        "(SELECT name FROM profiles WHERE id = 1 LIMIT 1)"
+    )
+    r = _run(33, q)
+
+    if r.get("error"):
+        err = str(r.get("error") or "")
+        if "CTF{" in err:
+            return {
+                "ok": True,
+                "message": f"Second-order error extraction. Flag: {_get_flag(33)}",
+                "raw": err,
+                "error": err,
+            }
+        return {
+            "ok": False,
+            "message": "View error — adjust stored payload.",
+            "raw": r.get("raw") or err,
+            "error": err,
+        }
+
+    rows = r.get("rows") or []
+    blob = _rows_blob(rows)
+    if "CTF{" in blob:
+        flag_val = next((str(v) for row in rows for v in row.values() if str(v).startswith("CTF{")), _get_flag(33))
+        return {
+            "ok": True,
+            "message": f"Advanced second-order win. Flag: {flag_val}",
+            "raw": r.get("raw") or "",
+        }
+
+    if any(row.get("role") == "admin" for row in rows):
+        flag_val = _get_flag(33)
+        return {
+            "ok": True,
+            "message": f"Second-order admin. Flag: {flag_val}",
+            "raw": r.get("raw") or "",
+        }
+
+    if len(rows) > 3:
+        return {
+            "ok": False,
+            "message": "Too many rows — keep the second-order payload precise.",
+            "raw": "",
+        }
+
+    return {
+        "ok": False,
+        "message": "View ran. Store a payload that extracts secrets on the second step.",
+        "raw": r.get("raw") or "",
+    }
 
 
-# ───────────────────────── Level 34 — regex WAF ─────────────────────────
+# ───────────────────────── Level 34 — WAF Regex Bypass ─────────────────────────
 def handle_34(p: dict) -> dict:
     u = p.get("username", "")
     if re.search(r"(?i)(union\s+select|or\s+1\s*=\s*1|'?\s*or\s*')", u):
-        return _blocked("WAF regex blocked payload")
+        return _blocked("WAF regex blocked classic patterns")
+
     q = f"SELECT id, username, role FROM users WHERE username = '{u}'"
-    return _run(34, q)
+    r = _run(34, q)
+
+    if r.get("error"):
+        return {
+            "ok": False,
+            "message": "Query error",
+            "raw": r.get("raw") or str(r.get("error")),
+            "error": r.get("error"),
+        }
+
+    rows = r.get("rows") or []
+    blob = _rows_blob(rows)
+    if "CTF{" in blob:
+        flag_val = next((str(v) for row in rows for v in row.values() if str(v).startswith("CTF{")), _get_flag(34))
+        return {
+            "ok": True,
+            "message": f"Regex WAF bypassed. Flag: {flag_val}",
+            "raw": r.get("raw") or "",
+        }
+
+    if rows and (rows[0].get("username") == "admin" or rows[0].get("role") == "admin"):
+        if u.strip().lower() == "admin":
+            return {
+                "ok": False,
+                "message": "Bypass the regex with alternative syntax, not plain admin.",
+                "raw": r.get("raw") or "",
+            }
+        flag_val = _get_flag(34)
+        return {
+            "ok": True,
+            "message": f"Regex bypass succeeded. Flag: {flag_val}",
+            "raw": r.get("raw") or "",
+        }
+
+    if len(rows) > 3:
+        return {
+            "ok": False,
+            "message": "Too many rows — targeted bypass only.",
+            "raw": "",
+        }
+
+    return {
+        "ok": False,
+        "message": "Classic union select / or 1=1 shapes are blocked. Use alternatives.",
+        "raw": r.get("raw") or "",
+    }
 
 
-# ───────────────────────── Level 35 — almost no feedback ─────────────────────────
+# ───────────────────────── Level 35 — No Error, No Time ─────────────────────────
 def handle_35(p: dict) -> dict:
+    """Always OK feedback — win via stacked side-effect writing a marker, or second statement."""
     u = p.get("username", "")
+    db = level_db(35)
+
+    # Ensure marker table
+    try:
+        conn = get_conn(db)
+        try:
+            with conn.cursor() as cur:
+                cur.execute(
+                    "CREATE TABLE IF NOT EXISTS sidechannel ("
+                    "id INT PRIMARY KEY, note VARCHAR(255))"
+                )
+                conn.commit()
+        finally:
+            conn.close()
+    except Exception:
+        pass
+
     q = f"SELECT id FROM users WHERE username = '{u}'"
-    r = _run(35, q)
-    # Always same message
+    # Support stacked to allow INSERT into sidechannel
+    try:
+        conn = get_conn(db)
+        try:
+            with conn.cursor() as cur:
+                parts = [x.strip() for x in q.split(";") if x.strip()]
+                for part in parts[:3]:
+                    cur.execute(part)
+                conn.commit()
+                # Check sidechannel marker
+                cur.execute("SELECT note FROM sidechannel WHERE id = 1")
+                marker = cur.fetchone()
+        finally:
+            conn.close()
+    except Exception as e:
+        # Still return OK (no error feedback)
+        return {"ok": True, "message": "OK", "raw": "OK"}
+
+    if marker and marker.get("note"):
+        note = str(marker.get("note"))
+        if "CTF{" in note or note.lower() == "pwned":
+            flag_val = _get_flag(35)
+            return {
+                "ok": True,
+                "message": f"Side-effect confirmed. Flag: {flag_val}",
+                "raw": "OK",
+            }
+
     return {"ok": True, "message": "OK", "raw": "OK"}
 
 
-# ───────────────────────── Level 36 — INSERT injection ─────────────────────────
+# ───────────────────────── Level 36 — INSERT Injection ─────────────────────────
 def handle_36(p: dict) -> dict:
     u = p.get("username", "")
     email = p.get("password", "x@x.com")
-    q = f"INSERT INTO users (username, password, email, role) VALUES ('{u}', 'pass', '{email}', 'user')"
-    return _run(36, q)
+    lowered = (u + " " + email).lower()
+
+    q = (
+        f"INSERT INTO users (username, password, email, role) "
+        f"VALUES ('{u}', 'pass', '{email}', 'user')"
+    )
+    r = _run(36, q)
+
+    # After insert, check if role was escalated or secrets leaked via injection
+    check = _run(36, "SELECT id, username, role FROM users WHERE role = 'admin' ORDER BY id DESC LIMIT 3")
+    rows = check.get("rows") or []
+
+    # Also allow extracting flag if injection did a subquery into a visible place —
+    # detect CTF in error
+    err = str(r.get("error") or "")
+    if "CTF{" in err:
+        return {
+            "ok": True,
+            "message": f"INSERT error-channel. Flag: {_get_flag(36)}",
+            "raw": err,
+            "error": err,
+        }
+
+    # Win if a new admin appeared that is not the original seed admin alone with injection evidence
+    if "role" in lowered and "admin" in lowered and any(row.get("role") == "admin" for row in rows):
+        # Require injection characters
+        if "'" in u or "'" in email or ";" in u or ";" in email:
+            flag_val = _get_flag(36)
+            return {
+                "ok": True,
+                "message": f"INSERT injection escalated role. Flag: {flag_val}",
+                "raw": r.get("raw") or "",
+            }
+
+    if r.get("error"):
+        return {
+            "ok": False,
+            "message": "INSERT failed — break out of VALUES carefully.",
+            "raw": r.get("raw") or err,
+            "error": err,
+        }
+
+    return {
+        "ok": False,
+        "message": "Row inserted as user. Inject into VALUES to change role or extract secrets.",
+        "raw": r.get("raw") or "",
+    }
 
 
-# ───────────────────────── Level 37 — UPDATE injection ─────────────────────────
+# ───────────────────────── Level 37 — UPDATE Injection ─────────────────────────
 def handle_37(p: dict) -> dict:
     u = p.get("username", "")
     newmail = p.get("password", "a@b.c")
+    lowered = (u + " " + newmail).lower()
+
     q = f"UPDATE users SET email = '{newmail}' WHERE username = '{u}'"
-    return _run(37, q)
+    r = _run(37, q)
+
+    err = str(r.get("error") or "")
+    if "CTF{" in err:
+        return {
+            "ok": True,
+            "message": f"UPDATE error-channel. Flag: {_get_flag(37)}",
+            "raw": err,
+            "error": err,
+        }
+
+    # Check if admin email was changed via injection in WHERE
+    check = _run(37, "SELECT username, email, role FROM users WHERE role = 'admin' LIMIT 1")
+    admin_rows = check.get("rows") or []
+    if admin_rows:
+        admin_email = str(admin_rows[0].get("email") or "")
+        if admin_email == newmail and ("'" in u or "or" in u.lower() or "or" in newmail.lower()):
+            flag_val = _get_flag(37)
+            return {
+                "ok": True,
+                "message": f"UPDATE injection hit admin. Flag: {flag_val}",
+                "raw": r.get("raw") or "",
+            }
+
+    # role escalation via SET injection
+    if "role" in lowered and "admin" in lowered and ("'" in newmail or "'" in u):
+        check2 = _run(37, f"SELECT username, role FROM users WHERE username = '{u.split(chr(39))[0]}' LIMIT 1")
+        # simpler: any user now admin beyond seed
+        flag_val = _get_flag(37)
+        # Verify at least one injection-looking success
+        if re.search(r"(?i)role\s*=", newmail) or re.search(r"(?i)role\s*=", u):
+            return {
+                "ok": True,
+                "message": f"UPDATE SET injection likely succeeded. Flag: {flag_val}",
+                "raw": r.get("raw") or "",
+            }
+
+    if r.get("error"):
+        return {
+            "ok": False,
+            "message": "UPDATE error",
+            "raw": r.get("raw") or err,
+            "error": err,
+        }
+
+    return {
+        "ok": False,
+        "message": "UPDATE ran. Inject in SET or WHERE (username / password fields).",
+        "raw": r.get("raw") or "",
+    }
 
 
-# ───────────────────────── Level 38 — LIMIT/OFFSET ─────────────────────────
+# ───────────────────────── Level 38 — Limit & Offset Abuse ─────────────────────────
 def handle_38(p: dict) -> dict:
     lim = p.get("username", "1")
+    lowered = lim.lower()
+
+    # Only allow relatively safe characters for LIMIT expression, but still injectable
+    if re.search(r"[;]", lim):
+        return _blocked("Semicolon not allowed in LIMIT")
+
     q = f"SELECT id, username, role FROM users ORDER BY id LIMIT {lim}"
-    return _run(38, q)
+    r = _run(38, q)
+
+    if r.get("error"):
+        err = str(r.get("error") or "")
+        if "CTF{" in err:
+            return {
+                "ok": True,
+                "message": f"LIMIT error-channel. Flag: {_get_flag(38)}",
+                "raw": err,
+                "error": err,
+            }
+        return {
+            "ok": False,
+            "message": "LIMIT expression error",
+            "raw": r.get("raw") or err,
+            "error": err,
+        }
+
+    rows = r.get("rows") or []
+    blob = _rows_blob(rows)
+    if "CTF{" in blob:
+        flag_val = next((str(v) for row in rows for v in row.values() if str(v).startswith("CTF{")), _get_flag(38))
+        return {
+            "ok": True,
+            "message": f"LIMIT injection extracted data. Flag: {flag_val}",
+            "raw": r.get("raw") or "",
+        }
+
+    # PROCEDURE ANALYSE / subquery tricks may not return CTF in rows —
+    # accept subquery mention with successful exec and secrets reference
+    if "secrets" in lowered and not r.get("error"):
+        flag_val = _get_flag(38)
+        return {
+            "ok": True,
+            "message": f"LIMIT subquery touched secrets. Flag: {flag_val}",
+            "raw": r.get("raw") or "",
+        }
+
+    if len(rows) > 5:
+        return {
+            "ok": False,
+            "message": "Too many rows from LIMIT — be precise.",
+            "raw": "",
+        }
+
+    return {
+        "ok": False,
+        "message": "LIMIT is injectable (expression). Subquery / nested SELECT for secrets.",
+        "raw": r.get("raw") or "",
+    }
 
 
-# ───────────────────────── Level 39 — partial prepared (id safe, name not) ─────────────────────────
+# ───────────────────────── Level 39 — Prepared Statement Bypass ─────────────────────────
 def handle_39(p: dict) -> dict:
     uid = p.get("password", "1")
     name = p.get("username", "")
-    # id uses parameter style check; name concatenated
     try:
         int(uid)
     except ValueError:
-        return _blocked("id must be integer")
+        return _blocked("id must be integer (prepared-style)")
+
     q = f"SELECT id, username, role FROM users WHERE id = {int(uid)} AND username = '{name}'"
-    return _run(39, q)
+    r = _run(39, q)
+
+    if r.get("error"):
+        return {
+            "ok": False,
+            "message": "Query error",
+            "raw": r.get("raw") or str(r.get("error")),
+            "error": r.get("error"),
+        }
+
+    rows = r.get("rows") or []
+    blob = _rows_blob(rows)
+    if "CTF{" in blob:
+        flag_val = next((str(v) for row in rows for v in row.values() if str(v).startswith("CTF{")), _get_flag(39))
+        return {
+            "ok": True,
+            "message": f"Partial prepared bypass. Flag: {flag_val}",
+            "raw": r.get("raw") or "",
+        }
+
+    if rows and (rows[0].get("username") == "admin" or rows[0].get("role") == "admin"):
+        if name.strip().lower() == "admin":
+            return {
+                "ok": False,
+                "message": "Inject via username; id is validated as int.",
+                "raw": r.get("raw") or "",
+            }
+        flag_val = _get_flag(39)
+        return {
+            "ok": True,
+            "message": f"Username field injection worked. Flag: {flag_val}",
+            "raw": r.get("raw") or "",
+        }
+
+    if len(rows) > 3:
+        return {
+            "ok": False,
+            "message": "Too many rows — inject precisely on the username parameter.",
+            "raw": "",
+        }
+
+    return {
+        "ok": False,
+        "message": "id is constrained; username is still concatenated. Attack the string side.",
+        "raw": r.get("raw") or "",
+    }
 
 
-# ───────────────────────── Level 40 — strip quotes only ─────────────────────────
+# ───────────────────────── Level 40 — Quote Stripping ─────────────────────────
 def handle_40(p: dict) -> dict:
-    u = p.get("username", "").replace("'", "").replace('"', "")
+    raw = p.get("username", "")
+    u = raw.replace("'", "").replace('"', "")
+    # Quotes stripped — must use no-quote techniques; but query still uses quotes around value
+    # So classic ' or 1=1 -- becomes  or 1=1 -- which can still work if spaces ok
+
     q = f"SELECT id, username, role FROM users WHERE username = '{u}'"
-    return _run(40, q)
+    r = _run(40, q)
+
+    if r.get("error"):
+        return {
+            "ok": False,
+            "message": "Query error",
+            "raw": r.get("raw") or str(r.get("error")),
+            "error": r.get("error"),
+        }
+
+    rows = r.get("rows") or []
+    blob = _rows_blob(rows)
+    if "CTF{" in blob:
+        flag_val = next((str(v) for row in rows for v in row.values() if str(v).startswith("CTF{")), _get_flag(40))
+        return {
+            "ok": True,
+            "message": f"Quote-less technique worked. Flag: {flag_val}",
+            "raw": r.get("raw") or "",
+        }
+
+    if len(rows) >= 2:
+        flag_val = _get_flag(40)
+        return {
+            "ok": True,
+            "message": f"Bypassed without quotes. Flag: {flag_val}",
+            "raw": r.get("raw") or "",
+        }
+
+    if rows and (rows[0].get("role") == "admin" or rows[0].get("username") == "admin"):
+        if raw.strip().lower() == "admin":
+            return {
+                "ok": False,
+                "message": "Quotes are stripped — craft a no-quote injection.",
+                "raw": r.get("raw") or "",
+            }
+        flag_val = _get_flag(40)
+        return {
+            "ok": True,
+            "message": f"No-quote admin path. Flag: {flag_val}",
+            "raw": r.get("raw") or "",
+        }
+
+    return {
+        "ok": False,
+        "message": "Quotes are stripped from input. Try OR/UNION without relying on quote breaks, or CHAR/hex.",
+        "raw": r.get("raw") or "",
+    }
 
 
-# ───────────────────────── Level 41 — nested / two params ─────────────────────────
+# ───────────────────────── Level 41 — JSON + Dual Fields ─────────────────────────
 def handle_41(p: dict) -> dict:
     u, pw = p.get("username", ""), p.get("password", "")
-    q = f"SELECT id, username FROM users WHERE username = '{u}' AND email = '{pw}'"
-    return _run(41, q)
+    q = f"SELECT id, username, role FROM users WHERE username = '{u}' AND email = '{pw}'"
+    r = _run(41, q)
+
+    if r.get("error"):
+        return {
+            "ok": False,
+            "message": "Query error",
+            "raw": r.get("raw") or str(r.get("error")),
+            "error": r.get("error"),
+        }
+
+    rows = r.get("rows") or []
+    blob = _rows_blob(rows)
+    if "CTF{" in blob:
+        flag_val = next((str(v) for row in rows for v in row.values() if str(v).startswith("CTF{")), _get_flag(41))
+        return {
+            "ok": True,
+            "message": f"Dual-field injection worked. Flag: {flag_val}",
+            "raw": r.get("raw") or "",
+        }
+
+    if rows and (rows[0].get("username") == "admin" or rows[0].get("role") == "admin"):
+        if u.strip().lower() == "admin" and "'" not in u and "'" not in pw:
+            return {
+                "ok": False,
+                "message": "Inject into username and/or password (email) fields.",
+                "raw": r.get("raw") or "",
+            }
+        flag_val = _get_flag(41)
+        return {
+            "ok": True,
+            "message": f"Dual-field bypass. Flag: {flag_val}",
+            "raw": r.get("raw") or "",
+        }
+
+    if len(rows) > 3:
+        return {
+            "ok": False,
+            "message": "Too many rows — do not dump.",
+            "raw": "",
+        }
+
+    return {
+        "ok": False,
+        "message": "Both fields are injectable. Attack either side of the AND.",
+        "raw": r.get("raw") or "",
+    }
 
 
-# ───────────────────────── Level 42 — both fields matter ─────────────────────────
+# ───────────────────────── Level 42 — Header + Cookie Chain ─────────────────────────
 def handle_42(p: dict) -> dict:
     u, pw = p.get("username", ""), p.get("password", "")
-    q = f"SELECT id FROM users WHERE username = '{u}' OR password = '{pw}'"
-    return _run(42, q)
+    q = f"SELECT id, username, role FROM users WHERE username = '{u}' OR password = '{pw}'"
+    r = _run(42, q)
+
+    if r.get("error"):
+        return {
+            "ok": False,
+            "message": "Query error",
+            "raw": r.get("raw") or str(r.get("error")),
+            "error": r.get("error"),
+        }
+
+    rows = r.get("rows") or []
+    blob = _rows_blob(rows)
+    if "CTF{" in blob:
+        flag_val = next((str(v) for row in rows for v in row.values() if str(v).startswith("CTF{")), _get_flag(42))
+        return {
+            "ok": True,
+            "message": f"Chained field injection. Flag: {flag_val}",
+            "raw": r.get("raw") or "",
+        }
+
+    if any(row.get("username") == "admin" or row.get("role") == "admin" for row in rows):
+        if u.strip().lower() in ("admin", "") and pw.strip().lower() in ("admin", "") and "'" not in u + pw:
+            return {
+                "ok": False,
+                "message": "Either field can carry the payload — inject, do not guess passwords.",
+                "raw": r.get("raw") or "",
+            }
+        flag_val = _get_flag(42)
+        return {
+            "ok": True,
+            "message": f"OR-chain reached admin. Flag: {flag_val}",
+            "raw": r.get("raw") or "",
+        }
+
+    if len(rows) > 3:
+        return {
+            "ok": False,
+            "message": "Too many rows — precise injection on one field is enough.",
+            "raw": "",
+        }
+
+    return {
+        "ok": False,
+        "message": "username OR password — inject in either simulated header/cookie field.",
+        "raw": r.get("raw") or "",
+    }
 
 
-# ───────────────────────── Level 43 — blind heavy ─────────────────────────
+# ───────────────────────── Level 43 — Blind Extraction ─────────────────────────
 def handle_43(p: dict) -> dict:
     expr = p.get("username", "0")
-    q = f"SELECT 1 FROM secrets WHERE ({expr})"
+    q = f"SELECT 1 FROM secrets WHERE ({expr}) LIMIT 1"
     r = _run(43, q)
+
     if r.get("error"):
         return {"ok": False, "message": "no", "raw": "no"}
-    return {"ok": True, "message": "yes" if r.get("rows") else "no", "raw": "yes" if r.get("rows") else "no"}
+
+    yes = bool(r.get("rows"))
+    lowered = expr.lower().replace(" ", "")
+
+    # Accept full-flag equality proof
+    if yes and "ctf{" in lowered and ("flag=" in lowered or "flaglike" in lowered):
+        return {
+            "ok": True,
+            "message": f"yes — Flag: {_get_flag(43)}",
+            "raw": "yes",
+        }
+
+    return {
+        "ok": yes,
+        "message": "yes" if yes else "no",
+        "raw": "yes" if yes else "no",
+    }
 
 
-# ───────────────────────── Level 44 — multi filter layers ─────────────────────────
+# ───────────────────────── Level 44 — Filter + Encoding Maze ─────────────────────────
 def handle_44(p: dict) -> dict:
     u = p.get("username", "")
+    # Layer 1: strip spaces and --
     u2 = u.replace(" ", "").replace("--", "")
+    # Layer 2: keywords on stripped text
     if re.search(r"(?i)union|select|or|and", u2):
         return _blocked("Layered filter blocked request")
+
+    # Note: comments can restore keywords in real SQL (/**/) — if player used comments,
+    # stripped keyword check may still catch 'union' inside unless broken: UN/**/ION
+    # UN/**/ION after removing spaces is still UN/**/ION — regex union won't match. Good.
+
     q = f"SELECT id, username, role FROM users WHERE username = '{u}'"
-    return _run(44, q)
+    r = _run(44, q)
+
+    if r.get("error"):
+        return {
+            "ok": False,
+            "message": "Query error",
+            "raw": r.get("raw") or str(r.get("error")),
+            "error": r.get("error"),
+        }
+
+    rows = r.get("rows") or []
+    blob = _rows_blob(rows)
+    if "CTF{" in blob:
+        flag_val = next((str(v) for row in rows for v in row.values() if str(v).startswith("CTF{")), _get_flag(44))
+        return {
+            "ok": True,
+            "message": f"Layered filters bypassed. Flag: {flag_val}",
+            "raw": r.get("raw") or "",
+        }
+
+    if rows and (rows[0].get("username") == "admin" or rows[0].get("role") == "admin"):
+        if u.strip().lower() == "admin":
+            return {
+                "ok": False,
+                "message": "Bypass the layered filters with comments/encoding.",
+                "raw": r.get("raw") or "",
+            }
+        flag_val = _get_flag(44)
+        return {
+            "ok": True,
+            "message": f"Filter maze cleared. Flag: {flag_val}",
+            "raw": r.get("raw") or "",
+        }
+
+    if len(rows) > 3:
+        return {
+            "ok": False,
+            "message": "Too many rows.",
+            "raw": "",
+        }
+
+    return {
+        "ok": False,
+        "message": "Spaces stripped and keywords blocked. Use /**/ and encoding tricks.",
+        "raw": r.get("raw") or "",
+    }
 
 
-# ───────────────────────── Level 45 — conditional error ─────────────────────────
+# ───────────────────────── Level 45 — Conditional Error Blind ─────────────────────────
 def handle_45(p: dict) -> dict:
     expr = p.get("username", "0")
-    # Extract via dual error
-    q = f"SELECT IF(({expr}), (SELECT table_name FROM information_schema.tables), 0)"
-    return _run(45, q)
+    # Error only when condition true — player controls condition
+    q = (
+        f"SELECT IF(({expr}), "
+        f"(SELECT 1/0 FROM secrets WHERE flag IS NOT NULL LIMIT 1), 0)"
+    )
+    r = _run(45, q)
+
+    err = str(r.get("error") or "")
+    raw = str(r.get("raw") or "")
+
+    # Division by zero or similar indicates true condition
+    if r.get("error") and re.search(r"(?i)division|error|truncated", err):
+        lowered = expr.lower().replace(" ", "")
+        if "flag" in lowered and "ctf{" in lowered:
+            return {
+                "ok": True,
+                "message": f"Conditional error confirmed knowledge. Flag: {_get_flag(45)}",
+                "raw": err,
+                "error": err,
+            }
+        # Still useful feedback for binary search
+        return {
+            "ok": False,
+            "message": "Condition TRUE (error triggered). Narrow the flag guess.",
+            "raw": err,
+            "error": err,
+        }
+
+    if "CTF{" in err or "CTF{" in raw:
+        return {
+            "ok": True,
+            "message": f"Error leaked flag. Flag: {_get_flag(45)}",
+            "raw": err or raw,
+        }
+
+    return {
+        "ok": False,
+        "message": "Condition FALSE or no error. Use IF(condition, error-expr, 0).",
+        "raw": r.get("raw") or "",
+    }
 
 
-# ───────────────────────── Level 46 — WAF + need obfuscation ─────────────────────────
+
+# ───────────────────────── Level 46 — WAF + Obfuscation ─────────────────────────
 def handle_46(p: dict) -> dict:
+    """Classic patterns blocked — obfuscate past the regex."""
     u = p.get("username", "")
-    if re.search(r"(?i)union\s+select|or\s+1=1", u):
-        return _blocked("WAF blocked")
+    if re.search(r"(?i)union\s+select|or\s+1\s*=\s*1", u):
+        return _blocked("WAF blocked classic patterns — obfuscate")
+
     q = f"SELECT id, username, role FROM users WHERE username = '{u}'"
-    return _run(46, q)
+    r = _run(46, q)
+
+    if r.get("error"):
+        err = str(r.get("error") or "")
+        if "CTF{" in err:
+            return {
+                "ok": True,
+                "message": f"Error extraction after WAF. Flag: {_get_flag(46)}",
+                "raw": err,
+                "error": err,
+            }
+        return {
+            "ok": False,
+            "message": "Query error",
+            "raw": r.get("raw") or err,
+            "error": err,
+        }
+
+    rows = r.get("rows") or []
+    blob = _rows_blob(rows)
+    if "CTF{" in blob:
+        flag_val = next((str(v) for row in rows for v in row.values() if str(v).startswith("CTF{")), _get_flag(46))
+        return {
+            "ok": True,
+            "message": f"WAF bypassed. Flag: {flag_val}",
+            "raw": r.get("raw") or "",
+        }
+
+    if any(row.get("username") == "admin" or row.get("role") == "admin" for row in rows):
+        if u.strip().lower() == "admin":
+            return {
+                "ok": False,
+                "message": "Plain admin is not enough — demonstrate obfuscation.",
+                "raw": r.get("raw") or "",
+            }
+        flag_val = _get_flag(46)
+        return {
+            "ok": True,
+            "message": f"Obfuscated bypass reached admin. Flag: {flag_val}",
+            "raw": r.get("raw") or "",
+        }
+
+    if len(rows) >= 2:
+        flag_val = _get_flag(46)
+        return {
+            "ok": True,
+            "message": f"Logic bypass after WAF. Flag: {flag_val}",
+            "raw": r.get("raw") or "",
+        }
+
+    if len(rows) > 5:
+        return {
+            "ok": False,
+            "message": "Too many rows — targeted extraction only.",
+            "raw": "",
+        }
+
+    return {
+        "ok": False,
+        "message": "WAF blocks 'union select' and 'or 1=1'. Use /**/, case tricks, or ||.",
+        "raw": r.get("raw") or "",
+    }
 
 
-# ───────────────────────── Level 47 — stacked + filter ─────────────────────────
+# ───────────────────────── Level 47 — Stacked + Filter ─────────────────────────
 def handle_47(p: dict) -> dict:
+    """Stacked allowed; DROP/DELETE/UPDATE/INSERT words blocked."""
     u = p.get("username", "")
-    if re.search(r"(?i)\b(drop|delete|update|insert)\b", u):
-        return _blocked("Dangerous keyword blocked")
-    return handle_25({**p, "username": u})
+    if re.search(r"(?i)\b(drop|delete|update|insert|alter|truncate)\b", u):
+        return _blocked("Dangerous DML/DDL keyword blocked")
+
+    q = f"SELECT id, username, role FROM users WHERE username = '{u}'"
+    db = level_db(47)
+    try:
+        conn = get_conn(db)
+        try:
+            with conn.cursor() as cur:
+                parts = [x.strip() for x in q.split(";") if x.strip()]
+                if len(parts) > 4:
+                    return {"ok": False, "message": "Too many stacked statements (max 4).", "raw": ""}
+                results = []
+                for part in parts:
+                    # re-check each part for banned keywords
+                    if re.search(r"(?i)\b(drop|delete|update|insert|alter|truncate)\b", part):
+                        return _blocked("Dangerous keyword in stacked part")
+                    cur.execute(part)
+                    try:
+                        results.append(cur.fetchall())
+                    except Exception:
+                        results.append("(ok non-select)")
+                conn.commit()
+                all_blob = " ".join(_rows_blob(r) if isinstance(r, list) else "" for r in results)
+                if "CTF{" in all_blob:
+                    flag_val = _get_flag(47)
+                    for rset in results:
+                        if isinstance(rset, list):
+                            for row in rset:
+                                for v in row.values():
+                                    if str(v).startswith("CTF{"):
+                                        flag_val = str(v)
+                    return {
+                        "ok": True,
+                        "message": f"Stacked (filtered) extraction. Flag: {flag_val}",
+                        "raw": f"Results: {results}",
+                    }
+                if len(parts) >= 2:
+                    return {
+                        "ok": False,
+                        "message": "Stacked statements ran. SELECT the flag without DML keywords.",
+                        "raw": f"Statements: {len(parts)}",
+                    }
+                rows = results[0] if results and isinstance(results[0], list) else []
+                if len(rows) > 3:
+                    return {
+                        "ok": False,
+                        "message": "Too many rows — stack a precise SELECT on secrets.",
+                        "raw": "",
+                    }
+                return {
+                    "ok": False,
+                    "message": "Use ';' to stack a SELECT (no INSERT/UPDATE/DELETE/DROP).",
+                    "raw": f"Result: {rows}",
+                }
+        finally:
+            conn.close()
+    except Exception as e:
+        return {
+            "ok": False,
+            "message": "Database error",
+            "raw": f"Query: {q}\nError: {e}",
+            "error": str(e),
+        }
 
 
-# ───────────────────────── Level 48 — extract without union keyword ─────────────────────────
+# ───────────────────────── Level 48 — No UNION Keyword ─────────────────────────
 def handle_48(p: dict) -> dict:
+    """UNION word blocked — error / blind / stacked instead."""
     u = p.get("username", "")
-    if "union" in u.lower():
-        return _blocked("UNION is blocked")
+    if re.search(r"(?i)union", u):
+        return _blocked("UNION is blocked on this level")
+
     q = f"SELECT id, username, role FROM users WHERE username = '{u}'"
-    return _run(48, q)
+    r = _run(48, q)
+
+    err = str(r.get("error") or "")
+    if "CTF{" in err:
+        return {
+            "ok": True,
+            "message": f"Error-based extraction (no UNION). Flag: {_get_flag(48)}",
+            "raw": err,
+            "error": err,
+        }
+
+    if r.get("error"):
+        return {
+            "ok": False,
+            "message": "Error surfaced — extract data without UNION.",
+            "raw": r.get("raw") or err,
+            "error": err,
+        }
+
+    rows = r.get("rows") or []
+    blob = _rows_blob(rows)
+    if "CTF{" in blob:
+        # stacked or subquery without the word union
+        flag_val = next((str(v) for row in rows for v in row.values() if str(v).startswith("CTF{")), _get_flag(48))
+        return {
+            "ok": True,
+            "message": f"Extracted without UNION. Flag: {flag_val}",
+            "raw": r.get("raw") or "",
+        }
+
+    if any(row.get("username") == "admin" or row.get("role") == "admin" for row in rows):
+        if u.strip().lower() == "admin":
+            return {
+                "ok": False,
+                "message": "Need extraction without the UNION keyword.",
+                "raw": r.get("raw") or "",
+            }
+        flag_val = _get_flag(48)
+        return {
+            "ok": True,
+            "message": f"Logic bypass without UNION. Flag: {flag_val}",
+            "raw": r.get("raw") or "",
+        }
+
+    if len(rows) > 3:
+        return {
+            "ok": False,
+            "message": "Too many rows — use error-based or precise subquery.",
+            "raw": "",
+        }
+
+    return {
+        "ok": False,
+        "message": "UNION is forbidden. Try error-based, boolean, or stacked SELECT.",
+        "raw": r.get("raw") or "",
+    }
 
 
-# ───────────────────────── Level 49 — remove spaces ─────────────────────────
+# ───────────────────────── Level 49 — No Spaces ─────────────────────────
 def handle_49(p: dict) -> dict:
-    u = p.get("username", "").replace(" ", "")
+    """All spaces stripped from input before query."""
+    raw = p.get("username", "")
+    u = raw.replace(" ", "")
+
     q = f"SELECT id, username, role FROM users WHERE username = '{u}'"
-    return _run(49, q)
+    r = _run(49, q)
+
+    if r.get("error"):
+        err = str(r.get("error") or "")
+        if "CTF{" in err:
+            return {
+                "ok": True,
+                "message": f"No-space error extraction. Flag: {_get_flag(49)}",
+                "raw": err,
+                "error": err,
+            }
+        return {
+            "ok": False,
+            "message": "Query error",
+            "raw": r.get("raw") or err,
+            "error": err,
+        }
+
+    rows = r.get("rows") or []
+    blob = _rows_blob(rows)
+    if "CTF{" in blob:
+        flag_val = next((str(v) for row in rows for v in row.values() if str(v).startswith("CTF{")), _get_flag(49))
+        return {
+            "ok": True,
+            "message": f"No-space payload worked. Flag: {flag_val}",
+            "raw": r.get("raw") or "",
+        }
+
+    if any(row.get("username") == "admin" or row.get("role") == "admin" for row in rows):
+        if raw.strip().lower() == "admin":
+            return {
+                "ok": False,
+                "message": "Spaces are stripped — craft injection without relying on spaces.",
+                "raw": r.get("raw") or "",
+            }
+        flag_val = _get_flag(49)
+        return {
+            "ok": True,
+            "message": f"No-space bypass. Flag: {flag_val}",
+            "raw": r.get("raw") or "",
+        }
+
+    if len(rows) >= 2:
+        flag_val = _get_flag(49)
+        return {
+            "ok": True,
+            "message": f"No-space logic bypass. Flag: {flag_val}",
+            "raw": r.get("raw") or "",
+        }
+
+    return {
+        "ok": False,
+        "message": "Spaces are removed. Use /**/ or tabs/parentheses instead of spaces.",
+        "raw": r.get("raw") or "",
+    }
 
 
-# ───────────────────────── Level 50 — filter comments ─────────────────────────
+# ───────────────────────── Level 50 — No Comments ─────────────────────────
 def handle_50(p: dict) -> dict:
+    """SQL comments forbidden — balance quotes naturally."""
     u = p.get("username", "")
-    if "--" in u or "/*" in u or "#" in u:
-        return _blocked("Comments not allowed")
+    if "--" in u or "/*" in u or "*/" in u or "#" in u:
+        return _blocked("Comments are not allowed")
+
     q = f"SELECT id, username, role FROM users WHERE username = '{u}' AND role = 'user'"
-    return _run(50, q)
+    r = _run(50, q)
+
+    if r.get("error"):
+        return {
+            "ok": False,
+            "message": "Query error — balance quotes without comments.",
+            "raw": r.get("raw") or str(r.get("error")),
+            "error": r.get("error"),
+        }
+
+    rows = r.get("rows") or []
+    blob = _rows_blob(rows)
+    if "CTF{" in blob:
+        flag_val = next((str(v) for row in rows for v in row.values() if str(v).startswith("CTF{")), _get_flag(50))
+        return {
+            "ok": True,
+            "message": f"No-comment injection worked. Flag: {flag_val}",
+            "raw": r.get("raw") or "",
+        }
+
+    if any(row.get("username") == "admin" or row.get("role") == "admin" for row in rows):
+        flag_val = _get_flag(50)
+        return {
+            "ok": True,
+            "message": f"Logic balanced without comments. Flag: {flag_val}",
+            "raw": r.get("raw") or "",
+        }
+
+    if len(rows) >= 2:
+        flag_val = _get_flag(50)
+        return {
+            "ok": True,
+            "message": f"Multi-row without comments. Flag: {flag_val}",
+            "raw": r.get("raw") or "",
+        }
+
+    return {
+        "ok": False,
+        "message": "Comments blocked and role='user' is appended. Close quotes and balance AND.",
+        "raw": r.get("raw") or "",
+    }
 
 
-# ───────────────────────── Level 51 — blind + waf ─────────────────────────
+# ───────────────────────── Level 51 — Blind + Heavy WAF ─────────────────────────
 def handle_51(p: dict) -> dict:
-    u = p.get("username", "")
-    if re.search(r"(?i)union|sleep|benchmark|information_schema", u):
-        return _blocked("WAF")
-    q = f"SELECT id FROM secrets WHERE username = '{u}' OR ({u})" if False else f"SELECT id FROM secrets WHERE ({u or '0'})"
+    """Strong keyword block + boolean channel on secrets."""
+    expr = p.get("username", "0")
+    if re.search(r"(?i)union|sleep|benchmark|information_schema|select|from", expr):
+        # allow comment-broken tokens
+        stripped = re.sub(r"/\*.*?\*/", "", expr.lower())
+        if re.search(r"(?i)union|sleep|benchmark|information_schema|\bselect\b|\bfrom\b", stripped):
+            return _blocked("Heavy WAF blocked keyword")
+
+    q = f"SELECT id FROM secrets WHERE ({expr}) LIMIT 1"
     r = _run(51, q)
+
     if r.get("error"):
         return {"ok": False, "message": "0", "raw": "0"}
-    return {"ok": True, "message": "1" if r.get("rows") else "0", "raw": "1" if r.get("rows") else "0"}
+
+    bit = "1" if r.get("rows") else "0"
+    lowered = expr.lower().replace(" ", "")
+    if bit == "1" and "ctf{" in lowered and ("flag=" in lowered or "flaglike" in lowered):
+        return {
+            "ok": True,
+            "message": f"1 — Flag: {_get_flag(51)}",
+            "raw": "1",
+        }
+
+    return {
+        "ok": bit == "1",
+        "message": bit,
+        "raw": bit,
+    }
 
 
-# ───────────────────────── Level 52 — polyglot friendly (same as basic but strict output) ─────────────────────────
+# ───────────────────────── Level 52 — Polyglot Payload ─────────────────────────
 def handle_52(p: dict) -> dict:
+    """Classic string context — clean extraction, no dump."""
     u = p.get("username", "")
     q = f"SELECT id, username, role FROM users WHERE username = '{u}'"
-    return _run(52, q)
+    r = _run(52, q)
+
+    if r.get("error"):
+        err = str(r.get("error") or "")
+        if "CTF{" in err:
+            return {
+                "ok": True,
+                "message": f"Polyglot error path. Flag: {_get_flag(52)}",
+                "raw": err,
+                "error": err,
+            }
+        return {
+            "ok": False,
+            "message": "Query error",
+            "raw": r.get("raw") or err,
+            "error": err,
+        }
+
+    rows = r.get("rows") or []
+    blob = _rows_blob(rows)
+    if "CTF{" in blob:
+        flag_val = next((str(v) for row in rows for v in row.values() if str(v).startswith("CTF{")), _get_flag(52))
+        return {
+            "ok": True,
+            "message": f"Clean extraction. Flag: {flag_val}",
+            "raw": r.get("raw") or "",
+        }
+
+    if any(row.get("username") == "admin" or row.get("role") == "admin" for row in rows):
+        if u.strip().lower() == "admin":
+            return {
+                "ok": False,
+                "message": "Extract the flag with a precise polyglot payload.",
+                "raw": r.get("raw") or "",
+            }
+        flag_val = _get_flag(52)
+        return {
+            "ok": True,
+            "message": f"Admin via polyglot. Flag: {flag_val}",
+            "raw": r.get("raw") or "",
+        }
+
+    if len(rows) > 3:
+        return {
+            "ok": False,
+            "message": "Too many rows — one clean payload to the flag.",
+            "raw": "",
+        }
+
+    return {
+        "ok": False,
+        "message": "Classic string SQLi. Craft one clean payload that extracts secrets.flag.",
+        "raw": r.get("raw") or "",
+    }
 
 
-# ───────────────────────── Level 53 — no quotes allowed ─────────────────────────
+# ───────────────────────── Level 53 — No Quotes Allowed ─────────────────────────
 def handle_53(p: dict) -> dict:
+    """Quotes rejected — numeric id context only."""
     u = p.get("username", "")
     if "'" in u or '"' in u:
         return _blocked("Quotes are forbidden")
+
     q = f"SELECT id, username, role FROM users WHERE id = {u or 0}"
-    return _run(53, q)
+    r = _run(53, q)
 
-
-# ───────────────────────── Level 54 — bit extraction channel ─────────────────────────
-def handle_54(p: dict) -> dict:
-    expr = p.get("username", "0")
-    q = f"SELECT id FROM secrets WHERE ({expr})"
-    r = _run(54, q)
     if r.get("error"):
-        return {"ok": False, "message": "x", "raw": "x"}
-    return {"ok": True, "message": "Y" if r.get("rows") else "N", "raw": "Y" if r.get("rows") else "N"}
+        err = str(r.get("error") or "")
+        if "CTF{" in err:
+            return {
+                "ok": True,
+                "message": f"Numeric error extraction. Flag: {_get_flag(53)}",
+                "raw": err,
+                "error": err,
+            }
+        return {
+            "ok": False,
+            "message": "Query error",
+            "raw": r.get("raw") or err,
+            "error": err,
+        }
+
+    rows = r.get("rows") or []
+    blob = _rows_blob(rows)
+    if "CTF{" in blob:
+        flag_val = next((str(v) for row in rows for v in row.values() if str(v).startswith("CTF{")), _get_flag(53))
+        return {
+            "ok": True,
+            "message": f"Numeric injection worked. Flag: {flag_val}",
+            "raw": r.get("raw") or "",
+        }
+
+    if len(rows) >= 2:
+        flag_val = _get_flag(53)
+        return {
+            "ok": True,
+            "message": f"Numeric logic bypass. Flag: {flag_val}",
+            "raw": r.get("raw") or "",
+        }
+
+    if any(row.get("username") == "admin" or row.get("role") == "admin" for row in rows):
+        flag_val = _get_flag(53)
+        return {
+            "ok": True,
+            "message": f"Numeric path to admin. Flag: {flag_val}",
+            "raw": r.get("raw") or "",
+        }
+
+    return {
+        "ok": False,
+        "message": "No quotes. Inject into numeric id (OR, UNION without quotes via hex/CHAR).",
+        "raw": r.get("raw") or "",
+    }
 
 
-# ───────────────────────── Level 55 — two-step context ─────────────────────────
+# ───────────────────────── Level 54 — Bit-by-Bit Advanced ─────────────────────────
+def handle_54(p: dict) -> dict:
+    """Y/N channel for bit / ASCII extraction on secrets."""
+    expr = p.get("username", "0")
+    q = f"SELECT id FROM secrets WHERE ({expr}) LIMIT 1"
+    r = _run(54, q)
+
+    if r.get("error"):
+        return {"ok": False, "message": "N", "raw": "N"}
+
+    yes = bool(r.get("rows"))
+    lowered = expr.lower().replace(" ", "")
+
+    if yes and "ctf{" in lowered and ("flag=" in lowered or "flaglike" in lowered):
+        return {
+            "ok": True,
+            "message": f"Y — Flag: {_get_flag(54)}",
+            "raw": "Y",
+        }
+
+    return {
+        "ok": yes,
+        "message": "Y" if yes else "N",
+        "raw": "Y" if yes else "N",
+    }
+
+
+# ───────────────────────── Level 55 — Chained Contexts (second-order) ─────────────────────────
 def handle_55(p: dict) -> dict:
-    return handle_18(p)
+    """password=save stores; password=view executes second-order query."""
+    action = (p.get("password") or "view").strip().lower()
+    u = p.get("username", "")
+    db = level_db(55)
+
+    if action == "save":
+        try:
+            conn = get_conn(db)
+            try:
+                with conn.cursor() as cur:
+                    cur.execute(
+                        "CREATE TABLE IF NOT EXISTS profiles ("
+                        "id INT PRIMARY KEY, name VARCHAR(512))"
+                    )
+                    cur.execute("DELETE FROM profiles WHERE id = 1")
+                    cur.execute(f"INSERT INTO profiles (id, name) VALUES (1, '{u}')")
+                    conn.commit()
+            finally:
+                conn.close()
+            return {
+                "ok": True,
+                "message": "Stored. Set password=view to trigger second-order execution.",
+                "raw": f"saved_len={len(u)}",
+            }
+        except Exception as e:
+            return {"ok": False, "message": "Save failed", "raw": str(e), "error": str(e)}
+
+    q = (
+        "SELECT id, username, role FROM users WHERE username = "
+        "(SELECT name FROM profiles WHERE id = 1 LIMIT 1)"
+    )
+    r = _run(55, q)
+
+    if r.get("error"):
+        err = str(r.get("error") or "")
+        if "CTF{" in err:
+            return {
+                "ok": True,
+                "message": f"Second-order error path. Flag: {_get_flag(55)}",
+                "raw": err,
+                "error": err,
+            }
+        return {
+            "ok": False,
+            "message": "View error — adjust stored payload.",
+            "raw": r.get("raw") or err,
+            "error": err,
+        }
+
+    rows = r.get("rows") or []
+    blob = _rows_blob(rows)
+    if "CTF{" in blob:
+        flag_val = next((str(v) for row in rows for v in row.values() if str(v).startswith("CTF{")), _get_flag(55))
+        return {
+            "ok": True,
+            "message": f"Chained second-order win. Flag: {flag_val}",
+            "raw": r.get("raw") or "",
+        }
+
+    if any(row.get("username") == "admin" or row.get("role") == "admin" for row in rows):
+        flag_val = _get_flag(55)
+        return {
+            "ok": True,
+            "message": f"Second-order admin. Flag: {flag_val}",
+            "raw": r.get("raw") or "",
+        }
+
+    if len(rows) > 3:
+        return {
+            "ok": False,
+            "message": "Too many rows — precise second-order payload only.",
+            "raw": "",
+        }
+
+    return {
+        "ok": False,
+        "message": "save then view. Store a payload that extracts secrets on view.",
+        "raw": r.get("raw") or "",
+    }
 
 
-# ───────────────────────── Level 56 — full chain lite (filter + string) ─────────────────────────
+# ───────────────────────── Level 56 — Full Chain Expert ─────────────────────────
 def handle_56(p: dict) -> dict:
+    """Keywords blocked unless split with inline comments."""
     u = p.get("username", "")
-    if re.search(r"(?i)\bunion\b|\bselect\b|\bor\b", u):
-        # allow obfuscation with comments
-        if not re.search(r"/\*.*\*/", u):
-            return _blocked("Direct keywords blocked — be creative")
+    # Bare keywords blocked; UN/**/ION allowed
+    low = u.lower()
+    for kw in ("union", "select", "or"):
+        if re.search(rf"(?<![a-z_/*]){kw}(?![a-z_/*])", low):
+            if not re.search(r"/\*.*?\*/", u):
+                return _blocked(f"Direct keyword '{kw}' blocked — use inline comments")
+            # if comments present but keyword still contiguous, still block
+            stripped = re.sub(r"/\*.*?\*/", "", low)
+            if re.search(rf"(?<![a-z_]){kw}(?![a-z_])", stripped):
+                return _blocked(f"Keyword '{kw}' still contiguous — split it with /* */")
+
     q = f"SELECT id, username, role FROM users WHERE username = '{u}'"
-    return _run(56, q)
+    r = _run(56, q)
+
+    if r.get("error"):
+        err = str(r.get("error") or "")
+        if "CTF{" in err:
+            return {
+                "ok": True,
+                "message": f"Expert chain error path. Flag: {_get_flag(56)}",
+                "raw": err,
+                "error": err,
+            }
+        return {
+            "ok": False,
+            "message": "Query error",
+            "raw": r.get("raw") or err,
+            "error": err,
+        }
+
+    rows = r.get("rows") or []
+    blob = _rows_blob(rows)
+    if "CTF{" in blob:
+        flag_val = next((str(v) for row in rows for v in row.values() if str(v).startswith("CTF{")), _get_flag(56))
+        return {
+            "ok": True,
+            "message": f"Expert obfuscation worked. Flag: {flag_val}",
+            "raw": r.get("raw") or "",
+        }
+
+    if any(row.get("username") == "admin" or row.get("role") == "admin" for row in rows):
+        if u.strip().lower() == "admin":
+            return {
+                "ok": False,
+                "message": "Demonstrate comment-obfuscated keywords.",
+                "raw": r.get("raw") or "",
+            }
+        flag_val = _get_flag(56)
+        return {
+            "ok": True,
+            "message": f"Obfuscated admin path. Flag: {flag_val}",
+            "raw": r.get("raw") or "",
+        }
+
+    if len(rows) > 3:
+        return {
+            "ok": False,
+            "message": "Too many rows.",
+            "raw": "",
+        }
+
+    return {
+        "ok": False,
+        "message": "Keywords must be split with /* */ (e.g. UN/**/ION SE/**/LECT).",
+        "raw": r.get("raw") or "",
+    }
 
 
-# ───────────────────────── Level 57 — into outfile / load_file style attempt surface ─────────────────────────
+# ───────────────────────── Level 57 — Protocol Surface ─────────────────────────
 def handle_57(p: dict) -> dict:
+    """Any classic path to secrets.flag; OUTFILE blocked."""
     u = p.get("username", "")
-    q = f"SELECT id, username FROM users WHERE username = '{u}'"
-    return _run(57, q)
+    if re.search(r"(?i)into\s+outfile|load_file\s*\(", u):
+        return _blocked("OUTFILE / LOAD_FILE disabled")
 
-
-# ───────────────────────── Level 58 — slow / heavy query allowed ─────────────────────────
-def handle_58(p: dict) -> dict:
-    u = p.get("username", "")
     q = f"SELECT id, username, role FROM users WHERE username = '{u}'"
-    return _run(58, q)
+    r = _run(57, q)
+
+    err = str(r.get("error") or "")
+    if "CTF{" in err:
+        return {
+            "ok": True,
+            "message": f"Error-channel extraction. Flag: {_get_flag(57)}",
+            "raw": err,
+            "error": err,
+        }
+
+    if r.get("error"):
+        return {
+            "ok": False,
+            "message": "Error surfaced — dig for the flag.",
+            "raw": r.get("raw") or err,
+            "error": err,
+        }
+
+    rows = r.get("rows") or []
+    blob = _rows_blob(rows)
+    if "CTF{" in blob:
+        flag_val = next((str(v) for row in rows for v in row.values() if str(v).startswith("CTF{")), _get_flag(57))
+        return {
+            "ok": True,
+            "message": f"Extracted secrets.flag. Flag: {flag_val}",
+            "raw": r.get("raw") or "",
+        }
+
+    if any(row.get("username") == "admin" or row.get("role") == "admin" for row in rows):
+        if u.strip().lower() == "admin":
+            return {
+                "ok": False,
+                "message": "Reach secrets.flag via union/error/blind — not plain admin.",
+                "raw": r.get("raw") or "",
+            }
+        flag_val = _get_flag(57)
+        return {
+            "ok": True,
+            "message": f"Privileged path. Flag: {flag_val}",
+            "raw": r.get("raw") or "",
+        }
+
+    if len(rows) > 3:
+        return {
+            "ok": False,
+            "message": "Too many rows — extract the flag precisely.",
+            "raw": "",
+        }
+
+    return {
+        "ok": False,
+        "message": "Open surface. Error, UNION, or blind — any path to secrets.flag.",
+        "raw": r.get("raw") or "",
+    }
 
 
-# ───────────────────────── Level 59 — very strict charset ─────────────────────────
+# ───────────────────────── Level 58 — Race Surface ─────────────────────────
+def handle_58(p: dict) -> dict:
+    """Same vulnerable login surface — standard extraction wins."""
+    u = p.get("username", "")
+    pw = p.get("password", "")
+
+    q = f"SELECT id, username, role FROM users WHERE username = '{u}' AND password = '{pw}'"
+    r = _run(58, q)
+
+    if r.get("error"):
+        err = str(r.get("error") or "")
+        if "CTF{" in err:
+            return {
+                "ok": True,
+                "message": f"Race-surface error path. Flag: {_get_flag(58)}",
+                "raw": err,
+                "error": err,
+            }
+        return {
+            "ok": False,
+            "message": "Query error",
+            "raw": r.get("raw") or err,
+            "error": err,
+        }
+
+    rows = r.get("rows") or []
+    blob = _rows_blob(rows)
+    if "CTF{" in blob:
+        flag_val = next((str(v) for row in rows for v in row.values() if str(v).startswith("CTF{")), _get_flag(58))
+        return {
+            "ok": True,
+            "message": f"Extracted on race surface. Flag: {flag_val}",
+            "raw": r.get("raw") or "",
+        }
+
+    if any(row.get("username") == "admin" or row.get("role") == "admin" for row in rows):
+        if u.strip().lower() == "admin" and "'" not in u and "'" not in pw:
+            return {
+                "ok": False,
+                "message": "Inject — do not guess the admin password.",
+                "raw": r.get("raw") or "",
+            }
+        flag_val = _get_flag(58)
+        return {
+            "ok": True,
+            "message": f"Auth bypass. Flag: {flag_val}",
+            "raw": r.get("raw") or "",
+        }
+
+    if len(rows) >= 2:
+        flag_val = _get_flag(58)
+        return {
+            "ok": True,
+            "message": f"Logic bypass. Flag: {flag_val}",
+            "raw": r.get("raw") or "",
+        }
+
+    return {
+        "ok": False,
+        "message": "Login surface is injectable on username/password.",
+        "raw": r.get("raw") or "",
+    }
+
+
+# ───────────────────────── Level 59 — Almost Impossible Filter ─────────────────────────
 def handle_59(p: dict) -> dict:
+    """Very limited charset: letters, digits, _, space, quotes, -|=<> """
     u = p.get("username", "")
     if re.search(r"[^a-zA-Z0-9_\s'\-\|=<>]", u):
-        return _blocked("Illegal character")
+        return _blocked("Illegal character — charset is restricted")
+
     q = f"SELECT id, username, role FROM users WHERE username = '{u}'"
-    return _run(59, q)
+    r = _run(59, q)
+
+    if r.get("error"):
+        err = str(r.get("error") or "")
+        if "CTF{" in err:
+            return {
+                "ok": True,
+                "message": f"Restricted charset error path. Flag: {_get_flag(59)}",
+                "raw": err,
+                "error": err,
+            }
+        return {
+            "ok": False,
+            "message": "Query error",
+            "raw": r.get("raw") or err,
+            "error": err,
+        }
+
+    rows = r.get("rows") or []
+    blob = _rows_blob(rows)
+    if "CTF{" in blob:
+        flag_val = next((str(v) for row in rows for v in row.values() if str(v).startswith("CTF{")), _get_flag(59))
+        return {
+            "ok": True,
+            "message": f"Restricted charset win. Flag: {flag_val}",
+            "raw": r.get("raw") or "",
+        }
+
+    if any(row.get("username") == "admin" or row.get("role") == "admin" for row in rows):
+        if u.strip().lower() == "admin":
+            return {
+                "ok": False,
+                "message": "Work inside the allowed charset to inject.",
+                "raw": r.get("raw") or "",
+            }
+        flag_val = _get_flag(59)
+        return {
+            "ok": True,
+            "message": f"Charset-limited bypass. Flag: {flag_val}",
+            "raw": r.get("raw") or "",
+        }
+
+    if len(rows) >= 2:
+        flag_val = _get_flag(59)
+        return {
+            "ok": True,
+            "message": f"Logic bypass within charset. Flag: {flag_val}",
+            "raw": r.get("raw") or "",
+        }
+
+    return {
+        "ok": False,
+        "message": "Only [a-zA-Z0-9_ ' -|=<>] allowed. No comments, no semicolons, no parentheses.",
+        "raw": r.get("raw") or "",
+    }
 
 
-# ───────────────────────── Level 60 — final: filter + string + no comments ─────────────────────────
+# ───────────────────────── Level 60 — The Final Gate ─────────────────────────
 def handle_60(p: dict) -> dict:
+    """union/select/schema/comments blocked — creative bypass."""
     u = p.get("username", "")
     if re.search(r"(?i)union|select|information_schema|--|#|/\*", u):
         return _blocked("Final gate blocked your payload")
-    q = f"SELECT id, username, role FROM users WHERE username = '{u}'"
-    return _run(60, q)
+
+    q = f"SELECT id, username, role FROM users WHERE username = '{u}' AND role = 'user'"
+    r = _run(60, q)
+
+    if r.get("error"):
+        err = str(r.get("error") or "")
+        if "CTF{" in err:
+            return {
+                "ok": True,
+                "message": f"Final gate opened via error. Flag: {_get_flag(60)}",
+                "raw": err,
+                "error": err,
+            }
+        return {
+            "ok": False,
+            "message": "Query error",
+            "raw": r.get("raw") or err,
+            "error": err,
+        }
+
+    rows = r.get("rows") or []
+    blob = _rows_blob(rows)
+    if "CTF{" in blob:
+        flag_val = next((str(v) for row in rows for v in row.values() if str(v).startswith("CTF{")), _get_flag(60))
+        return {
+            "ok": True,
+            "message": f"Final gate cleared. Flag: {flag_val}",
+            "raw": r.get("raw") or "",
+        }
+
+    if any(row.get("username") == "admin" or row.get("role") == "admin" for row in rows):
+        flag_val = _get_flag(60)
+        return {
+            "ok": True,
+            "message": f"Final logic bypass. Flag: {flag_val}",
+            "raw": r.get("raw") or "",
+        }
+
+    if len(rows) >= 2:
+        flag_val = _get_flag(60)
+        return {
+            "ok": True,
+            "message": f"Final multi-row bypass. Flag: {flag_val}",
+            "raw": r.get("raw") or "",
+        }
+
+    return {
+        "ok": False,
+        "message": "Final gate: no union/select/schema/comments. Balance quotes and boolean logic.",
+        "raw": r.get("raw") or "",
+    }
 
 
 HANDLERS = {

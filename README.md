@@ -1,46 +1,51 @@
 # SQLi Playground
 
-Local, offline **SQL Injection CTF lab** with **60 progressive levels** on **MariaDB / MySQL**.
+**Local, offline SQL Injection CTF lab** — 60 progressive levels on MariaDB / MySQL.
 
-Each level uses an **isolated database**. Flags are **random per installation**. Progress is sequential — you cannot skip levels.
+Real vulnerable queries. Isolated databases per level. Random flags per install. Sequential unlock.
 
-> Educational lab only. Run on your own machine. Do not expose it to the internet.
+> Educational use only. Run on your own machine. **Do not expose this lab to the internet.**
+
+[![Live Demo](https://img.shields.io/badge/demo-GitHub%20Pages-0a0a10?style=flat-square)](https://you-in-you.github.io/sqli-playground/demo/)
+[![Version](https://img.shields.io/badge/version-1.0.0-00ff88?style=flat-square)](./version/version.json)
+[![License](https://img.shields.io/badge/license-Educational-d500f9?style=flat-square)](#license)
 
 ---
 
+## Preview
 
-## Live demo
+![SQLi Playground dashboard](photo.png)
 
-Static UI preview (no database required):
+Static UI preview (no database): **[Live Demo](https://you-in-you.github.io/sqli-playground/demo/)**  
+Level 01 is interactive in the browser; the full lab needs a local install.
 
-[Live Demo](https://you-in-you.github.io/sqli-playground/demo/)
-
-- Level **01** is interactive (mock SQLi in the browser)
-- Levels **02–60** are visual demo only
-- Full real lab: clone and run locally
+---
 
 ## Features
 
-- 60 levels from basic error-based SQLi to advanced filter / WAF / blind techniques
-- Real vulnerable queries (not regex “fake” checks)
-- One database per level — dumping level 1 does not reveal later flags
-- Random flags generated at setup (`CTF{sql1_lXX_........}`)
-- Flag verification reads **only from that level’s database**
-- Attack history stored safely (parameterized queries) — click a solved flag to review payloads and responses
-- Dark minimal CTF UI (difficulty-colored)
-- Config via `config.json` (no need to export env vars every time)
+- **60 levels** — easy → medium → hard → expert → insane
+- **Real SQLi** — intentionally vulnerable handlers, not string matching games
+- **Isolated DBs** — `sqli_level_01` … `sqli_level_60`; dumping one level does not leak later flags
+- **Random flags** — `CTF{sql1_lXX_........}` generated at setup
+- **Safe control plane** — progress, history, and flag checks use parameterized queries
+- **Attack history** — review payloads that solved each level
+- **Dark CTF UI** — difficulty-colored cards, filters, progressive unlock
+- **CLI toolkit** — `./run.sh` for ensure / install / reinstall / uninstall / status
+- **Update check** — compares local version with `version/version.json` on GitHub
 
 ---
 
 ## Requirements
 
-- Python **3.10+**
-- MariaDB **10.5+** or MySQL **8+**
-- `pip` / venv
+| Stack | Version |
+|--------|---------|
+| Python | 3.10+ |
+| MariaDB | 10.5+ **or** MySQL 8+ |
+| Docker | optional (Compose v2) |
 
 ---
 
-## Quick start
+## Quick start (local)
 
 ### 1. Clone
 
@@ -59,7 +64,7 @@ pip install -r requirements.txt
 
 ### 3. Database user
 
-On many Linux distros (Fedora, Ubuntu, …) `root` uses **socket auth** and cannot connect via TCP without a password. Create a dedicated user:
+On many Linux distros, `root` uses socket auth. Create a dedicated user:
 
 ```bash
 sudo mariadb -u root
@@ -74,7 +79,7 @@ EXIT;
 
 ### 4. Configure
 
-Edit `config.json`:
+Edit `config.json` if needed:
 
 ```json
 {
@@ -83,155 +88,181 @@ Edit `config.json`:
   "DB_USER": "ctf",
   "DB_PASS": "ctfpass",
   "SECRET_KEY": "change-this-to-a-long-random-string",
-  "HOST": "0.0.0.0",
-  "PORT": 5000
+  "HOST": "127.0.0.1",
+  "PORT": 7080
 }
 ```
 
-### 5. Initialize databases & flags
+Bind `HOST` to `127.0.0.1` for local-only access.
 
-```bash
-python3 scripts/setup_db.py
-```
-
-This creates:
-
-- `sqli_level_01` … `sqli_level_60` (each with `users` + `secrets`)
-- `sqli_ctf_meta` (progress + attack history)
-- `flags.json` (seed only; not required at runtime for verification)
-
-### 6. Run
-
-```bash
-export PYTHONPATH="$(pwd)"
-python3 -m flask --app app.main run
-```
-
-Or:
+### 5. Run
 
 ```bash
 chmod +x run.sh
 ./run.sh
 ```
 
-Open: **http://127.0.0.1:5000**
+This ensures databases (non-destructive), then starts Flask. Open the URL printed in the terminal (default `http://127.0.0.1:7080`).
 
 ---
 
-## How to play
+## Docker
 
-1. Open level 1 (others stay `403` until unlocked).
-2. Inject into the form fields and read the **RESPONSE** panel.
-3. Extract the flag from the `secrets` table of that level.
-4. Submit the flag (`CTF{...}`).
-5. Next level unlocks.
-6. Click a row under **Solved Flags** to see your attack history and the winning payload.
+Docker runs **MariaDB + the web app** together. No local MariaDB install required.
 
-### Level 1 example
+### Start
 
-```text
-' UNION SELECT 1,flag,3 FROM secrets -- 
+```bash
+git clone https://github.com/you-in-you/sqli-playground.git
+cd sqli-playground
+docker compose up --build
 ```
 
-(Column counts differ by level — read the error messages and hints.)
+- App: [http://127.0.0.1:5000](http://127.0.0.1:5000)
+- DB: MariaDB on port `3306` (user/password from `docker-compose.yml`)
+
+On first start, `scripts/setup_db.py` creates the 60 level databases and random flags.
+
+### Useful commands
+
+```bash
+docker compose up --build -d    # detached
+docker compose logs -f web      # app logs
+docker compose down             # stop containers
+docker compose down -v          # stop and delete DB volume (full wipe)
+```
+
+### Notes
+
+- Default compose uses root credentials inside the stack for setup simplicity. Change passwords before any shared environment.
+- `flags.json` is bind-mounted; do not commit real flags (see `.gitignore`).
+- For day-to-day local work without containers, prefer `./run.sh` + system MariaDB.
+
+---
+
+## CLI (`./run.sh`)
+
+| Command | What it does |
+|---------|----------------|
+| `./run.sh` / `./run.sh start` | Ensure DBs, then start the lab server |
+| `./run.sh ensure` | Create missing DBs/tables; keep flags & progress |
+| `./run.sh install` | Drop lab DBs + flags, full rebuild |
+| `./run.sh reinstall` | Same as install |
+| `./run.sh uninstall` | Drop lab DBs + flags only (no rebuild) — come back later |
+| `./run.sh status` | Version, databases, progress |
+| `./run.sh -y install` | Skip confirmation prompts |
+| `./run.sh help` | Show help |
+
+Examples:
+
+```bash
+./run.sh status
+./run.sh install
+./run.sh -y reinstall
+./run.sh uninstall
+```
+
+Environment overrides:
+
+| Variable | Effect |
+|----------|--------|
+| `SQLI_CTF_FORCE_RESET=1` | Auto-confirm destructive ops / migrations |
+| `SQLI_CTF_SKIP_RESET=1` | Skip migrations |
+| `SQLI_CTF_SKIP_UPDATE=1` | Skip remote version check |
+| `SQLI_CTF_CONFIG=path` | Alternate config file |
+
+---
+
+## How progress works
+
+- Levels unlock **in order**. You cannot skip ahead.
+- Each level has its own database (`sqli_level_XX`).
+- Submitting the correct flag (from that level’s `secrets` table) marks the level solved and unlocks the next one.
+- Flags are unique per installation; sharing flags across machines will not work.
 
 ---
 
 ## Project layout
 
 ```text
-sqli-playground/
+.
 ├── app/
-│   ├── main.py           # Flask API + pages
-│   ├── config.py         # loads config.json (+ env overrides)
-│   ├── db.py             # DB helpers, progress, safe history
+│   ├── main.py           # Flask routes & API
+│   ├── config.py         # Loads config.json / env
+│   ├── db.py             # Progress, history, flag check
 │   ├── levels/
-│   │   ├── handlers.py   # 60 intentionally vulnerable handlers
-│   │   └── __init__.py   # metadata + registry
+│   │   ├── handlers.py   # Intentionally vulnerable level handlers
+│   │   └── __init__.py   # Level metadata & registry
 │   ├── static/           # CSS / JS
-│   └── templates/
-├── scripts/setup_db.py   # create DBs + random flags
-├── config.json           # local settings (edit this)
+│   └── templates/        # Dashboard UI
+├── scripts/
+│   └── setup_db.py       # DB toolkit (ensure / install / uninstall / …)
+├── demo/                 # Static GitHub Pages preview
+├── version/
+│   └── version.json      # Published version + changelog
+├── config.json           # Local settings
+├── docker-compose.yml
+├── Dockerfile
+├── run.sh                # Main entrypoint
 ├── requirements.txt
-├── run.sh
 └── README.md
 ```
 
 ---
 
-## Reset / maintenance
+## Reset & maintenance
 
-**Reset progress only:**
+**Progress only** (SQL):
 
 ```sql
 UPDATE sqli_ctf_meta.progress SET current_level = 1, solved = '';
 TRUNCATE TABLE sqli_ctf_meta.attack_history;
 ```
 
-**New random flags (re-seed):**
+**New flags + clean progress:**
 
 ```bash
-rm -f flags.json
-python3 scripts/setup_db.py
+./run.sh install
 ```
 
-Note: existing level DBs keep old flag rows until re-created. For a full wipe, drop `sqli_ctf_meta` and `sqli_level_*` databases, then run setup again.
+**Remove lab data from MySQL (keep source tree):**
+
+```bash
+./run.sh uninstall
+```
 
 ---
 
-## Common errors
+## Common issues
 
-### `Access denied for user 'root'@'localhost'`
-
-Root is using unix_socket auth. Use a dedicated user (`ctf` / `ctfpass`) as in the install steps, or enable password auth for root.
-
-### `Can't connect to MySQL server on '127.0.0.1'`
-
-MariaDB/MySQL is not running:
-
-```bash
-# Fedora / Ubuntu
-sudo systemctl start mariadb
-```
-
-### `ModuleNotFoundError: flask` / `pymysql`
-
-Activate the venv and install requirements:
-
-```bash
-source .venv/bin/activate
-pip install -r requirements.txt
-```
-
-### `flags.json incomplete` / setup regenerates flags
-
-Normal on first run. Setup generates 60 unique flags and writes them into each level DB.
-
-### Port already in use
-
-Change `"PORT"` in `config.json`, or:
-
-```bash
-python3 -m flask --app app.main run --port 8080
-```
-
-### History modal empty for an old solved level
-
-History is recorded after this feature was added. New attacks are logged; the attempt used right before a successful submit can be marked as the winning payload.
-
-### Docker
-
-`Dockerfile` and `docker-compose.yml` are optional. On Fedora/workstations with local MariaDB, venv + `config.json` is simpler.
+| Problem | Fix |
+|---------|-----|
+| `Access denied for user 'root'@'localhost'` | Use the `ctf` / `ctfpass` user, or enable password auth for root |
+| `Can't connect to MySQL server` | Start MariaDB: `sudo systemctl start mariadb` |
+| `ModuleNotFoundError: flask` | Activate venv and `pip install -r requirements.txt` |
+| Port already in use | Change `PORT` in `config.json` |
+| Docker DB not ready | Wait for healthcheck; check `docker compose logs db` |
 
 ---
 
 ## Security notes
 
-- **Local lab only.** Set `"HOST": "127.0.0.1"` in `config.json` for stricter local binding.
+- **Local lab only.** Prefer `"HOST": "127.0.0.1"` in `config.json`.
 - Challenge endpoints are **intentionally vulnerable**.
-- Meta DB operations (progress, history, flag check) use **parameterized queries** so stored payloads cannot SQLi the lab control plane.
-- Do not commit `flags.json` (see `.gitignore`).
-- Change `SECRET_KEY` in `config.json` for your install.
+- Meta DB operations (progress, history, flag verification) use **parameterized queries**.
+- Do not commit `flags.json`.
+- Change `SECRET_KEY` for your install.
+- Never publish this service on a public IP.
+
+---
+
+## Updates
+
+On `./run.sh ensure` / `install` / `status`, the toolkit may fetch:
+
+`https://raw.githubusercontent.com/you-in-you/sqli-playground/main/version/version.json`
+
+If a newer version is published, you will see the changelog and a reminder to `git pull`.
 
 ---
 
@@ -243,4 +274,4 @@ Educational use. Use responsibly.
 
 ## Author
 
-[you-in-you](https://github.com/you-in-you)
+[you-in-you](https://github.com/you-in-you) · [Repository](https://github.com/you-in-you/sqli-playground)

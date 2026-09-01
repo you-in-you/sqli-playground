@@ -6,6 +6,7 @@
 #   ./run.sh ensure          create missing DBs/tables (keep flags & progress)
 #   ./run.sh install         wipe lab DBs + flags, full rebuild
 #   ./run.sh reinstall       same as install
+#   ./run.sh uninstall       remove lab DBs + flags only (no rebuild)
 #   ./run.sh status          show version / databases / progress
 #   ./run.sh -y install      skip confirmation prompts
 #   ./run.sh help            show this help
@@ -23,35 +24,36 @@ export PYTHONPATH="$(pwd)"
 SETUP=(python3 scripts/setup_db.py)
 YES_ARGS=()
 CMD=""
-SERVER=0
 
 print_help() {
   cat <<'HELP'
 
   SQLi Playground  —  ./run.sh
+  https://github.com/you-in-you/sqli-playground
 
   Commands:
     start        Ensure databases, then start the Flask lab server (default)
     ensure       Create missing DBs/tables; keep flags & progress
     install      DROP all lab databases + flags, then rebuild from scratch
     reinstall    Same as install
+    uninstall    DROP lab databases + flags only (no rebuild) — come back later
     status       Show app version, databases, and progress
     help         Show this help
 
   Options:
-    -y, --yes    Skip confirmation prompts (for install/reinstall)
+    -y, --yes    Skip confirmation prompts (install / reinstall / uninstall)
 
   Examples:
     ./run.sh
     ./run.sh status
     ./run.sh install
     ./run.sh -y reinstall
+    ./run.sh uninstall
     ./run.sh ensure
 
 HELP
 }
 
-# Parse args: optional -y/--yes, then command, then rest forwarded to setup_db
 while [ $# -gt 0 ]; do
   case "$1" in
     -y|--yes)
@@ -62,7 +64,7 @@ while [ $# -gt 0 ]; do
       print_help
       exit 0
       ;;
-    start|ensure|install|reinstall|status)
+    start|ensure|install|reinstall|uninstall|status)
       CMD="$1"
       shift
       break
@@ -80,24 +82,23 @@ while [ $# -gt 0 ]; do
   esac
 done
 
-# Default: start the lab
 if [ -z "$CMD" ]; then
   CMD="start"
 fi
 
 case "$CMD" in
   start)
-    # ensure (non-destructive) then run server
     "${SETUP[@]}" "${YES_ARGS[@]}" ensure
     HOST="$(python3 -c 'from app.config import HOST; print(HOST)')"
     PORT="$(python3 -c 'from app.config import PORT; print(PORT)')"
     echo ""
     echo "  Starting Flask on http://${HOST}:${PORT}"
+    echo "  Project: https://github.com/you-in-you/sqli-playground"
     echo "  Stop with Ctrl+C"
     echo ""
     exec python3 -m flask --app app.main run --host="$HOST" --port="$PORT"
     ;;
-  ensure|install|reinstall|status)
+  ensure|install|reinstall|uninstall|status)
     exec "${SETUP[@]}" "${YES_ARGS[@]}" "$CMD" "$@"
     ;;
   *)

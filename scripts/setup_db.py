@@ -65,6 +65,7 @@ TOTAL_LEVELS = 60
 
 # Bump when shipping breaking level/handler changes and list them in MIGRATIONS.
 APP_VERSION = "1.0.0"
+REPO_URL = "https://github.com/you-in-you/sqli-playground"
 
 # Remote version manifest (branch: main). Override with SQLI_CTF_VERSION_URL.
 VERSION_CHECK_URL = str(
@@ -786,7 +787,7 @@ def check_remote_update(quiet: bool = False) -> bool:
     released = remote.get("released") or remote.get("date") or ""
     if released:
         ui.kv("Released", str(released))
-    repo = remote.get("url") or "https://github.com/you-in-you/sqli-playground"
+    repo = remote.get("url") or REPO_URL
     ui.kv("Repo", str(repo))
     print()
 
@@ -918,12 +919,15 @@ def cmd_install(force: bool = False) -> int:
     label = "reinstall" if force else "install"
     ui.banner(f"{label} (destructive)")
     check_remote_update()
+    print()
+    ui.info(f"Welcome back to SQLi Playground — {REPO_URL}")
     ui.warn("This will DELETE all lab databases, tables, flags, and progress.")
     ui.info("Databases matching: sqli_ctf_meta, sqli_level_*")
+    ui.info("A clean lab will be created right after the wipe.")
     print()
 
     if not confirm(f"Really {label} everything?", default_no=True):
-        ui.warn("Aborted.")
+        ui.warn("Aborted — nothing was changed.")
         return 2
 
     wait_for_db()
@@ -941,8 +945,67 @@ def cmd_install(force: bool = False) -> int:
     flags = generate_flags()
     ensure_all_level_dbs(flags)
     set_stored_version(APP_VERSION)
-    # progress already empty on fresh meta
-    ui.footer(f"{label.capitalize()} complete — fresh lab ready.")
+
+    print()
+    ui.ok(f"{label.capitalize()} complete — fresh lab is ready.")
+    ui.info("Start the lab with:  ./run.sh")
+    ui.info(f"Project: {REPO_URL}")
+    ui.footer("Happy hacking.")
+    return 0
+
+
+def cmd_uninstall() -> int:
+    """
+    Remove the lab completely from MySQL/MariaDB:
+      • DROP sqli_ctf_meta + all sqli_level_*
+      • Delete local flags.json
+    Does NOT delete the git checkout / source code.
+    """
+    ui.banner("uninstall")
+    print()
+    ui.warn("This removes the lab data from your database server.")
+    ui.info("Will DROP: sqli_ctf_meta, sqli_level_01 … sqli_level_60")
+    ui.info(f"Will delete local flags file: {FLAGS_FILE}")
+    ui.info("Source code in this folder is kept (git repo stays).")
+    print()
+
+    if not confirm("Uninstall the lab and wipe all challenge data?", default_no=True):
+        ui.warn("Aborted — lab is still installed.")
+        ui.info("Come back whenever you like.")
+        return 2
+
+    try:
+        wait_for_db()
+    except RuntimeError:
+        ui.warn("Database unreachable — will still try to remove local flags.json")
+    else:
+        ui.section("Removing databases")
+        n = drop_lab_databases()
+        if n == 0:
+            ui.info("No lab databases were present")
+
+    ui.section("Local files")
+    if os.path.exists(FLAGS_FILE):
+        try:
+            os.remove(FLAGS_FILE)
+            ui.ok(f"Removed {FLAGS_FILE}")
+        except OSError as e:
+            ui.err(f"Could not remove flags.json: {e}")
+    else:
+        ui.info("No flags.json to remove")
+
+    print()
+    ui.ok("Lab data removed.")
+    print()
+    ui.info("Thanks for playing SQLi Playground.")
+    ui.info("Come back later anytime:")
+    print(f"       {REPO_URL}")
+    print()
+    ui.info("To reinstall from this folder:")
+    print("       ./run.sh install")
+    print("       ./run.sh")
+    print()
+    ui.footer("See you around.")
     return 0
 
 
@@ -956,12 +1019,14 @@ commands:
   ensure      Create missing DBs/tables; keep flags & progress (default)
   install     DROP lab DBs + flags, then full rebuild
   reinstall   Alias of install
+  uninstall   DROP lab DBs + flags only (no rebuild) — come back later
   status      Show version, databases, progress
 
 examples:
   python3 scripts/setup_db.py
   python3 scripts/setup_db.py status
   python3 scripts/setup_db.py install
+  python3 scripts/setup_db.py uninstall
   SQLI_CTF_FORCE_RESET=1 python3 scripts/setup_db.py reinstall
 """.rstrip(),
     )
@@ -969,7 +1034,7 @@ examples:
         "command",
         nargs="?",
         default="ensure",
-        choices=["ensure", "install", "reinstall", "status"],
+        choices=["ensure", "install", "reinstall", "uninstall", "status"],
         help="action to run (default: ensure)",
     )
     p.add_argument(
@@ -999,6 +1064,8 @@ def main(argv: list[str] | None = None) -> int:
             return cmd_install(force=False)
         if args.command == "reinstall":
             return cmd_install(force=True)
+        if args.command == "uninstall":
+            return cmd_uninstall()
         # ensure (default)
         return cmd_ensure()
     except KeyboardInterrupt:

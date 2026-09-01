@@ -729,56 +729,224 @@ def handle_11(p: dict) -> dict:
         "raw": f"Attempts left: {left}",
     }
 
-# ───────────────────────── Level 12 — length extraction channel ─────────────────────────
+# ───────────────────────── Level 12 — player must use ORD/SUBSTRING ─────────────────────────
+
 def handle_12(p: dict) -> dict:
-    expr = p.get("username", "0")
-    q = f"SELECT id FROM secrets WHERE LENGTH(flag) = {expr}"
+    expr = (p.get("username") or "0").strip()
+    lowered = expr.lower()
+
+    # Must actually use the string/char functions — not a bare number
+    uses_ord = "ord(" in lowered or "ascii(" in lowered
+    uses_sub = "substring(" in lowered or "substr(" in lowered or "mid(" in lowered
+    if not (uses_ord and uses_sub):
+        return {
+            "ok": False,
+            "message": (
+                "Use SQL character functions in your expression. "
+                "Hint shape: ORD(SUBSTRING(flag, 7, 1))=?"
+            ),
+            "raw": "Functions required",
+        }
+
+    if re.search(r"\bor\b\s+1\s*=\s*1", lowered) or "union" in lowered:
+        return {
+            "ok": False,
+            "message": "OR 1=1 / UNION blocked. Solve with ORD + SUBSTRING on flag.",
+            "raw": "Blocked",
+        }
+
+    q = f"SELECT id FROM secrets WHERE id = 1 AND ({expr})"
     r = _run(12, q)
+
     if r.get("error"):
-        return {"ok": False, "message": "Invalid", "raw": "Invalid"}
+        return {
+            "ok": False,
+            "message": "Invalid expression",
+            "raw": str(r.get("error") or "Invalid"),
+            "error": r.get("error"),
+        }
+
     if r.get("rows"):
-        return {"ok": True, "message": "MATCH", "raw": "Length matches"}
-    return {"ok": False, "message": "NO MATCH", "raw": "Length does not match"}
+        f = _run(12, "SELECT flag FROM secrets WHERE name = 'level_flag' LIMIT 1")
+        if not f.get("rows"):
+            f = _run(12, "SELECT flag FROM secrets LIMIT 1")
+        flag_val = f["rows"][0].get("flag") if f.get("rows") else ""
+        return {
+            "ok": True,
+            "message": (
+                f"MATCH — character function logic correct. Flag: {flag_val}"
+                if flag_val
+                else "MATCH — correct."
+            ),
+            "raw": "ORD matches",
+        }
 
+    return {
+        "ok": False,
+        "message": "NO MATCH — expression is valid but false. Adjust the number.",
+        "raw": "ORD does not match",
+    }
 
-# ───────────────────────── Level 13 — char extraction ─────────────────────────
+# ───────────────────────── Level 13 — time-based find 12th char, prove with UNION ─────────────────────────
 def handle_13(p: dict) -> dict:
-    # username = position, password = ascii guess  OR combined expression
-    expr = p.get("username", "1=0")
-    q = f"SELECT id FROM secrets WHERE {expr}"
+    expr = (p.get("username") or "1=0").strip()
+    lowered = expr.lower()
+
+    f = _run(13, "SELECT flag FROM secrets WHERE name = 'level_flag' LIMIT 1")
+    if not f.get("rows"):
+        f = _run(13, "SELECT flag FROM secrets LIMIT 1")
+    flag_val = f["rows"][0].get("flag") if f.get("rows") else ""
+    twelfth = flag_val[11] if flag_val and len(flag_val) >= 12 else ""
+
+    # no outer parens — UNION must work at top level
+    q = f"SELECT id, name FROM secrets WHERE {expr}"
     r = _run(13, q)
+
     if r.get("error"):
-        return {"ok": False, "message": "Invalid", "raw": "Invalid expression"}
-    if r.get("rows"):
-        return {"ok": True, "message": "YES", "raw": "YES"}
-    return {"ok": False, "message": "NO", "raw": "NO"}
+        return {
+            "ok": False,
+            "message": "Invalid expression",
+            "raw": str(r.get("error") or "Invalid expression"),
+            "error": r.get("error"),
+        }
+
+    rows = r.get("rows") or []
+    blob = " ".join(str(v) for row in rows for v in row.values())
+
+    # block dumping the full flag into the result
+    if flag_val and flag_val in blob:
+        return {
+            "ok": False,
+            "message": "Full flag dump blocked. Prove the 12th character with UNION SELECT 'edis', '<char>'.",
+            "raw": "",
+        }
+
+    # WIN: UNION proof row contains marker 'edis' AND the correct 12th character
+    if "union" in lowered and twelfth:
+        for row in rows:
+            vals = [str(v) for v in row.values()]
+            has_marker = any(v.lower() == "edis" for v in vals)
+            has_char = any(v == twelfth for v in vals)
+            if has_marker and has_char:
+                return {
+                    "ok": True,
+                    "message": (
+                        f"Proof accepted (edis + 12th char). Flag: {flag_val}"
+                        if flag_val
+                        else "Proof accepted."
+                    ),
+                    "raw": "OK",
+                }
+
+    # time-based / boolean path — do not reveal flag
+    if rows:
+        return {
+            "ok": True,
+            "message": "YES",
+            "raw": "YES",
+        }
+    return {
+        "ok": False,
+        "message": "NO",
+        "raw": "NO",
+    }
 
 
-# ───────────────────────── Level 14 — time-based ─────────────────────────
+# ───────────────────────── Level 14 — time-based (flag if elapsed > 1s) ─────────────────────────
 def handle_14(p: dict) -> dict:
     u = p.get("username", "")
     q = f"SELECT id FROM users WHERE username = '{u}'"
+
     start = time.time()
     r = _run(14, q)
     elapsed = time.time() - start
-    r["raw"] = (r.get("raw") or "") + f"\n\n[elapsed: {elapsed:.2f}s]"
-    # Don't leak row content for pure time practice — still show errors
-    if not r.get("error") and r.get("rows") is not None:
-        r["message"] = "Done"
-        r["raw"] = f"Query finished in {elapsed:.2f}s\n(Use SLEEP to measure true/false)"
-    return r
+
+    # Always hide row dumps — this level is about time only
+    if r.get("error"):
+        return {
+            "ok": False,
+            "message": "Query error",
+            "raw": f"Error after {elapsed:.2f}s\n{r.get('error')}",
+            "error": r.get("error"),
+        }
+
+    if elapsed > 1.0:
+        f = _run(14, "SELECT flag FROM secrets WHERE name = 'level_flag' LIMIT 1")
+        if not f.get("rows"):
+            f = _run(14, "SELECT flag FROM secrets LIMIT 1")
+        flag_val = f["rows"][0].get("flag") if f.get("rows") else ""
+        return {
+            "ok": True,
+            "message": (
+                f"Time threshold passed ({elapsed:.2f}s). Flag: {flag_val}"
+                if flag_val
+                else f"Time threshold passed ({elapsed:.2f}s)."
+            ),
+            "raw": f"Query finished in {elapsed:.2f}s",
+        }
+
+    return {
+        "ok": False,
+        "message": f"Done in {elapsed:.2f}s — too fast. Force a delay > 1 second.",
+        "raw": f"Query finished in {elapsed:.2f}s\n(Use SLEEP to measure true/false)",
+    }
 
 
-# ───────────────────────── Level 15 — simple blacklist ─────────────────────────
+# ───────────────────────── Level 15 — simple blacklist (|| bypass) ─────────────────────────
 def handle_15(p: dict) -> dict:
     u = p.get("username", "")
-    blocked = ["union", "select", "or", "and", "sleep", "benchmark"]
+    blocked = [
+        "union", "select", "or", "and", "sleep", "benchmark",
+        "--", "#", "/*",
+    ]
     low = u.lower()
     for w in blocked:
         if w in low:
             return _blocked(f"Blacklist hit: '{w}' is not allowed")
-    q = f"SELECT id, username, role FROM users WHERE username = '{u}'"
-    return _run(15, q)
+
+    # role='user' → plain "admin" returns nothing; comments are blacklisted
+    q = f"SELECT id, username, role FROM users WHERE username = '{u}' AND role = 'user'"
+    r = _run(15, q)
+
+    if r.get("error"):
+        return {
+            "ok": False,
+            "message": "Query error",
+            "raw": r.get("raw") or str(r.get("error")),
+            "error": r.get("error"),
+        }
+
+    rows = r.get("rows") or []
+
+    # Normal single-user login (alice/bob/guest) → 1 row → not enough
+    # Injection that opens the WHERE → multiple user rows → win
+    if len(rows) >= 2:
+        f = _run(15, "SELECT flag FROM secrets WHERE name = 'level_flag' LIMIT 1")
+        if not f.get("rows"):
+            f = _run(15, "SELECT flag FROM secrets LIMIT 1")
+        flag_val = f["rows"][0].get("flag") if f.get("rows") else ""
+        return {
+            "ok": True,
+            "message": (
+                f"Blacklist bypassed (multiple rows). Flag: {flag_val}"
+                if flag_val
+                else "Blacklist bypassed."
+            ),
+            "raw": r.get("raw") or "",
+        }
+
+    if len(rows) == 1:
+        return {
+            "ok": False,
+            "message": "One user row — not enough. Bypass the filter so the query matches more rows.",
+            "raw": r.get("raw") or "",
+        }
+
+    return {
+        "ok": False,
+        "message": "No rows. Remember: or/and/comments are blocked — try another operator.",
+        "raw": r.get("raw") or "",
+    }
 
 
 # ───────────────────────── Level 16 — type casting / column types ─────────────────────────

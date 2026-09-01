@@ -71,7 +71,8 @@ REPO_URL = "https://github.com/you-in-you/sqli-playground"
 VERSION_CHECK_URL = str(
     _get(
         "VERSION_CHECK_URL",
-        "https://raw.githubusercontent.com/you-in-you/sqli-playground/main/version/version.json",
+        ""
+        # "https://raw.githubusercontent.com/you-in-you/sqli-playground/main/version/version.json",
     )
 )
 VERSION_CHECK_TIMEOUT = float(_get("VERSION_CHECK_TIMEOUT", 5))

@@ -172,30 +172,71 @@ def handle_04(p: dict) -> dict:
 def handle_05(p: dict) -> dict:
     u = p.get("username", "")
 
+    if "secrets" in u or "flag" in u:
+        return {
+            "ok": False,
+            "message": "Direct dump blocked !",
+            "raw": "",
+        }
+
+    if u.count("1337") > 1:
+        return {
+            "ok": False,
+            "message": "Multiple 1337 values detected! This pattern is not allowed.",
+            "raw": "",
+        }
+
     q = f"SELECT username, password, email, role, id FROM users WHERE username = '{u}'"
     r = _run(5, q)
 
-    if not r.get("ok"):
-        return {"message": f"Database Error: {r.get('error', 'Query failed')}", "ok": False}
+    # Real SQL/syntax errors only
+    if r.get("error"):
+        return {
+            "message": f"Database Error: {r.get('error')}",
+            "ok": False,
+            "error": r.get("error"),
+            "Query": r.get("Query"),
+            "raw": ""
+        }
 
-    rows = r.get("rows", [])
+    rows = r.get("rows") or []
 
+    # Win: a result row with 5 cols — four strings + numeric 1337
+    for row in rows:
+        vals = list(row.values())
+        if len(vals) != 5:
+            continue
+        first_four_are_str = all(isinstance(v, str) for v in vals[:4])
+        try:
+            fifth_is_1337 = int(vals[4]) == 1337
+        except (TypeError, ValueError):
+            fifth_is_1337 = False
+
+        if first_four_are_str and fifth_is_1337:
+            f = _run(5, "SELECT flag FROM secrets LIMIT 1")
+            flag_val = f["rows"][0].get("flag") if f.get("rows") else ""
+            return {
+                "message": (
+                    f"Data types matched — UNION successful! Flag: {flag_val}"
+                    if flag_val
+                    else "Data types matched — UNION successful!"
+                ),
+                "ok": True
+            }
+
+    # Query ran fine; layout just is not the winning shape yet
     if rows:
-        for row in rows:
-            vals = list(row.values())
+        return {
+            "message": "Query executed successfully. Adjust UNION column count/types (need 1337 in the numeric column).",
+            "ok": False,
+            "raw": ""
+        }
 
-            if len(vals) == 5:
-                first_four_are_str = all(isinstance(v, str) for v in vals[:4])
-                fifth_is_1337 = isinstance(vals[4], (int, float)) and vals[4] == 1337
-
-                if first_four_are_str and fifth_is_1337:
-                    f = _run(5, "SELECT flag FROM secrets LIMIT 1")
-                    flag_val = f["rows"][0].get("flag") if f.get("rows") else ""
-                    return {"message": f"Data types strictly matched & UNION successful! Flag: {flag_val}", "ok": True}
-
-        return {"message": "Payload layout invalid! .", "ok": False}
-
-    return {"message": "No results returned. Match column counts and data types via UNION SELECT.", "ok": False}
+    return {
+        "message": "Query executed — no rows returned. Use UNION SELECT with matching types.",
+        "ok": False,
+        "raw": ""
+    }
 
 # ───────────────────────── Level 06 — Extracting Table Names under Filtered Syntax ─────────────────────────
 
@@ -207,11 +248,25 @@ def handle_06(p: dict) -> dict:
 
     u = urllib.parse.unquote(raw_u)
 
+    if "flag" in u:
+        return {
+            "ok": False,
+            "message": "Direct dump blocked !",
+            "raw": "",
+        }
+
     q = f"SELECT id, username, role FROM users WHERE username = '{u}'"
     r = _run(6, q)
 
     if not r.get("ok"):
         return {"message": f"Database Error: {r.get('error', 'Query failed')}", "ok": False}
+
+    if "union" in u and "users" in u and "secrets" in u:
+        f = _run(6, "SELECT flag FROM secrets LIMIT 1")
+        flag_val = f["rows"][0].get("flag") if f.get("rows") else ""
+        r["message"] = f"Table schema enumerated successfully! Flag: {flag_val}"
+        r["ok"] = True
+        return r
 
     rows = r.get("rows", [])
     r["result"] = rows
@@ -225,12 +280,12 @@ def handle_06(p: dict) -> dict:
             r["ok"] = False
             return r
 
-        if "secrets" in all_vals:
-            f = _run(6, "SELECT flag FROM secrets LIMIT 1")
-            flag_val = f["rows"][0].get("flag") if f.get("rows") else ""
-            r["message"] = f"Table schema enumerated successfully! Flag: {flag_val}"
-            r["ok"] = True
-            return r
+        # if "secrets" in all_vals:
+        #     f = _run(6, "SELECT flag FROM secrets LIMIT 1")
+        #     flag_val = f["rows"][0].get("flag") if f.get("rows") else ""
+        #     r["message"] = f"Table schema enumerated successfully! Flag: {flag_val}"
+        #     r["ok"] = True
+        #     return r
 
         r["message"] = "Query executed"
         r["ok"] = False

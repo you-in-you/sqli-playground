@@ -29,15 +29,20 @@ services:
       DB_PASS: rootpass
       SECRET_KEY: change-me-in-production-sqli-ctf-2026
       FLASK_ENV: development
+      # Optional overrides:
+      # APP_VERSION: "1.0.0"
+      # VERSION_CHECK_URL: "https://raw.githubusercontent.com/you-in-you/sqli-playground/main/version/version.json"
     volumes:
-      - ./app:/app/app
-      - ./scripts:/app/scripts
-      - ./flags.json:/app/flags.json
+      # :Z — SELinux relabel (Fedora/RHEL). On non-SELinux hosts Docker ignores it.
+      - ./app:/app/app:Z
+      - ./scripts:/app/scripts:Z
+      - ./flags.json:/app/flags.json:Z
     depends_on:
       db:
         condition: service_healthy
     command: >
-      sh -c "python scripts/setup_db.py && python -m flask --app app.main run --host=0.0.0.0 --port=5000 --debug"
+      sh -c "python scripts/setup_db.py ensure &&
+             python -m flask --app app.main run --host=0.0.0.0 --port=5000 --debug"
 
 volumes:
   sqli_data:

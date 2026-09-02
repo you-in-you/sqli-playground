@@ -71,7 +71,8 @@ REPO_URL = "https://github.com/you-in-you/sqli-playground"
 VERSION_CHECK_URL = str(
     _get(
         "VERSION_CHECK_URL",
-        "https://raw.githubusercontent.com/you-in-you/sqli-playground/main/version/version.json",
+        ""
+        # "https://raw.githubusercontent.com/you-in-you/sqli-playground/main/version/version.json",
     )
 )
 VERSION_CHECK_TIMEOUT = float(_get("VERSION_CHECK_TIMEOUT", 5))
@@ -889,7 +890,7 @@ def cmd_status() -> int:
 def cmd_ensure() -> int:
     """Idempotent setup used by run.sh — no wipe."""
     ui.banner("ensure (non-destructive)")
-    check_remote_update()
+    # Remote version check lives in the web UI (non-blocking). CLI: ./run.sh status
     wait_for_db()
     ui.section("Meta")
     create_meta_db()
@@ -918,7 +919,6 @@ def cmd_install(force: bool = False) -> int:
     """
     label = "reinstall" if force else "install"
     ui.banner(f"{label} (destructive)")
-    check_remote_update()
     print()
     ui.info(f"Welcome back to SQLi Playground — {REPO_URL}")
     ui.warn("This will DELETE all lab databases, tables, flags, and progress.")

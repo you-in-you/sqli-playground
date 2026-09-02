@@ -268,8 +268,85 @@ $$(".tab").forEach((tab) => {
   });
 });
 
-loadDashboard().catch((e) => {
-  console.error(e);
-  $("#levels-grid").innerHTML =
-    `<p class="empty-state">Backend not ready. Edit config.json and run setup_db.py</p>`;
-});
+loadDashboard()
+  .then(() => checkForUpdate())
+  .catch((e) => {
+    console.error(e);
+    $("#levels-grid").innerHTML =
+      `<p class="empty-state">Backend not ready. Edit config.json and run setup_db.py</p>`;
+  });
+
+
+/* ── Update check (async, non-blocking) ───────────────────────── */
+const UPDATE_DISMISS_KEY = "sqli_update_dismissed";
+
+function dismissUpdateModal(remoteVer) {
+  $("#update-overlay").classList.add("hidden");
+  if (remoteVer) {
+    try {
+      sessionStorage.setItem(UPDATE_DISMISS_KEY, String(remoteVer));
+    } catch (_) {}
+  }
+}
+
+function showUpdateModal(data) {
+  const remote = data.remote || "";
+  try {
+    if (sessionStorage.getItem(UPDATE_DISMISS_KEY) === String(remote)) return;
+  } catch (_) {}
+
+  $("#update-local").textContent = data.local || "—";
+  $("#update-remote").textContent = remote || "—";
+  const released = data.released ? `Released ${data.released}` : "";
+  $("#update-released").textContent = released;
+
+  const ul = $("#update-changes");
+  ul.innerHTML = "";
+  (data.changes || []).forEach((item) => {
+    const li = document.createElement("li");
+    li.textContent = item;
+    ul.appendChild(li);
+  });
+
+  const notes = data.notes || "";
+  $("#update-notes").textContent = notes;
+  $("#update-notes").style.display = notes ? "" : "none";
+
+  const repo = data.repo || "https://github.com/you-in-you/sqli-playground";
+  $("#btn-update-repo").href = repo;
+
+  $("#update-overlay").classList.remove("hidden");
+}
+
+async function checkForUpdate() {
+  try {
+    const data = await api("/api/version/check");
+    if (data && data.update) showUpdateModal(data);
+  } catch (_) {
+    /* offline / timeout — silent */
+  }
+}
+
+const _btnCloseUpdate = $("#btn-close-update");
+if (_btnCloseUpdate) {
+  _btnCloseUpdate.addEventListener("click", () => {
+    const remote = $("#update-remote").textContent;
+    dismissUpdateModal(remote);
+  });
+}
+const _btnDismissUpdate = $("#btn-dismiss-update");
+if (_btnDismissUpdate) {
+  _btnDismissUpdate.addEventListener("click", () => {
+    const remote = $("#update-remote").textContent;
+    dismissUpdateModal(remote);
+  });
+}
+const _updateOverlay = $("#update-overlay");
+if (_updateOverlay) {
+  _updateOverlay.addEventListener("click", (e) => {
+    if (e.target.id === "update-overlay") {
+      const remote = $("#update-remote").textContent;
+      dismissUpdateModal(remote);
+    }
+  });
+}

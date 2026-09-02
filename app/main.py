@@ -1,5 +1,12 @@
 from flask import Flask, render_template, request, jsonify
-from app.config import SECRET_KEY, TOTAL_LEVELS
+from app.config import (
+    SECRET_KEY,
+    TOTAL_LEVELS,
+    APP_VERSION,
+    REPO_URL,
+    VERSION_CHECK_URL,
+    VERSION_CHECK_TIMEOUT,
+)
 from app.db import (
     get_progress,
     mark_solved,
@@ -21,6 +28,75 @@ app.secret_key = SECRET_KEY
 @app.route("/")
 def index():
     return render_template("index.html")
+
+
+def _parse_ver(v: str) -> tuple:
+    parts = []
+    for p in str(v or "").strip().split("."):
+        digits = "".join(c for c in p if c.isdigit())
+        parts.append(int(digits) if digits else 0)
+    return tuple(parts) if parts else (0,)
+
+
+@app.route("/api/version")
+def api_version():
+    """Local version only — never hits the network."""
+    return jsonify({
+        "version": APP_VERSION,
+        "repo": REPO_URL,
+    })
+
+
+@app.route("/api/version/check")
+def api_version_check():
+    """
+    Compare local APP_VERSION with remote version/version.json.
+    Short timeout; failures return update=false so the UI never hangs.
+    """
+    import json as _json
+    from urllib.request import Request, urlopen
+    from urllib.error import URLError, HTTPError
+
+    local = APP_VERSION
+    out = {
+        "update": False,
+        "local": local,
+        "remote": None,
+        "repo": REPO_URL,
+        "changes": [],
+        "notes": "",
+        "released": "",
+        "error": None,
+    }
+    try:
+        req = Request(
+            VERSION_CHECK_URL,
+            headers={
+                "User-Agent": f"sqli-playground/{local}",
+                "Accept": "application/json",
+            },
+            method="GET",
+        )
+        with urlopen(req, timeout=VERSION_CHECK_TIMEOUT) as resp:
+            data = _json.loads(resp.read().decode("utf-8", errors="replace"))
+        if not isinstance(data, dict):
+            out["error"] = "invalid_manifest"
+            return jsonify(out)
+        remote = str(data.get("version") or "").strip()
+        out["remote"] = remote or None
+        out["repo"] = str(data.get("url") or REPO_URL)
+        out["released"] = str(data.get("released") or data.get("date") or "")
+        changes = data.get("changes") or data.get("changelog") or []
+        if isinstance(changes, str):
+            changes = [changes]
+        out["changes"] = list(changes)
+        out["notes"] = str(data.get("notes") or data.get("note") or "")
+        if remote and _parse_ver(local) < _parse_ver(remote):
+            out["update"] = True
+    except (URLError, HTTPError, TimeoutError, OSError, ValueError) as e:
+        out["error"] = type(e).__name__
+    return jsonify(out)
+
 
 
 @app.route("/api/levels")

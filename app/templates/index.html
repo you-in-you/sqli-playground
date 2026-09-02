@@ -125,6 +125,28 @@
     </div>
   </div>
 
+
+  <div id="update-overlay" class="overlay hidden">
+    <div class="update-card">
+      <div class="update-top">
+        <h2>Update available</h2>
+        <button id="btn-close-update" class="btn-ghost" type="button" title="Close">✕</button>
+      </div>
+      <p class="update-versions">
+        <span>Current <strong id="update-local">—</strong></span>
+        <span class="update-arrow">→</span>
+        <span>Latest <strong id="update-remote">—</strong></span>
+      </p>
+      <p id="update-released" class="update-meta"></p>
+      <ul id="update-changes" class="update-changes"></ul>
+      <p id="update-notes" class="update-notes"></p>
+      <div class="update-actions">
+        <a id="btn-update-repo" class="btn-attack" href="https://github.com/you-in-you/sqli-playground" target="_blank" rel="noopener noreferrer">OPEN REPO</a>
+        <button id="btn-dismiss-update" class="btn-ghost" type="button">LATER</button>
+      </div>
+    </div>
+  </div>
+
   <div id="success-overlay" class="overlay hidden">
     <div class="success-card">
       <div class="success-icon">✓</div>

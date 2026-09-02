@@ -42,3 +42,14 @@ PORT = int(_get("PORT", 5000))
 # flags.json only used by setup_db.py to seed DBs (optional path)
 FLAGS_FILE = str(_get("FLAGS_FILE", str(ROOT / "flags.json")))
 TOTAL_LEVELS = 60
+
+# App release version (keep in sync with version/version.json when publishing)
+APP_VERSION = str(_get("APP_VERSION", "1.0.0"))
+REPO_URL = str(_get("REPO_URL", "https://github.com/you-in-you/sqli-playground"))
+VERSION_CHECK_URL = str(
+    _get(
+        "VERSION_CHECK_URL",
+        "https://raw.githubusercontent.com/you-in-you/sqli-playground/main/version/version.json",
+    )
+)
+VERSION_CHECK_TIMEOUT = float(_get("VERSION_CHECK_TIMEOUT", 2.5))

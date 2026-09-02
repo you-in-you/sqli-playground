@@ -30,8 +30,8 @@ Level 01 is interactive in the browser; the full lab needs a local install.
 - **Safe control plane** — progress, history, and flag checks use parameterized queries
 - **Attack history** — review payloads that solved each level
 - **Dark CTF UI** — difficulty-colored cards, filters, progressive unlock
-- **CLI toolkit** — `./run.sh` for ensure / install / reinstall / uninstall / status
-- **Update check** — compares local version with `version/version.json` on GitHub
+- **CLI toolkit** — `./run.sh` for local **and** Docker workflows
+- **Non-blocking update check** — after the dashboard loads, the UI compares the local version with GitHub `version/version.json` and shows a dismissible modal if a newer release exists (launch is never stalled by a slow network)
 
 ---
 
@@ -110,37 +110,55 @@ This ensures databases (non-destructive), then starts Flask. Open the URL printe
 
 Docker runs **MariaDB + the web app** together. No local MariaDB install required.
 
-### Start
+### Start / stop (via `./run.sh`)
 
 ```bash
 git clone https://github.com/you-in-you/sqli-playground.git
 cd sqli-playground
-docker compose up --build
+
+./run.sh docker up          # build + start (detached)
+# Lab → http://127.0.0.1:5000
+
+./run.sh docker logs        # follow web logs
+./run.sh docker down        # stop
+./run.sh docker down -v     # stop and delete DB volume (full wipe)
 ```
 
-- App: [http://127.0.0.1:5000](http://127.0.0.1:5000)
-- DB: MariaDB on port `3306` (user/password from `docker-compose.yml`)
-
-On first start, `scripts/setup_db.py` creates the 60 level databases and random flags.
-
-### Useful commands
+Equivalent Compose commands still work:
 
 ```bash
-docker compose up --build -d    # detached
-docker compose logs -f web      # app logs
-docker compose down             # stop containers
-docker compose down -v          # stop and delete DB volume (full wipe)
+docker compose up --build -d
+docker compose logs -f web
+docker compose down
 ```
+
+### Lab maintenance inside Docker
+
+Same verbs as local, prefixed with `docker`:
+
+| Goal | Command |
+|------|---------|
+| Status | `./run.sh docker status` |
+| Ensure DBs | `./run.sh docker ensure` |
+| Full rebuild | `./run.sh docker -y install` |
+| Uninstall lab data | `./run.sh docker -y uninstall` |
+| Shell in web | `./run.sh docker shell` |
+
+These run `scripts/setup_db.py` inside the `web` container (`docker compose exec` or a one-off `run` if the service is down).
 
 ### Notes
 
-- Default compose uses root credentials inside the stack for setup simplicity. Change passwords before any shared environment.
-- `flags.json` is bind-mounted; do not commit real flags (see `.gitignore`).
-- For day-to-day local work without containers, prefer `./run.sh` + system MariaDB.
+- Bind mounts use the `:Z` suffix for SELinux (Fedora/RHEL). On hosts without SELinux, Docker ignores it.
+- Default compose credentials are for local labs only — change passwords before any shared environment.
+- `flags.json` is bind-mounted; do not commit real flags.
+- Update checks in the browser talk to GitHub; the `version/` folder does not need a separate volume mount.
+- For day-to-day work without containers, prefer `./run.sh` + system MariaDB.
 
 ---
 
 ## CLI (`./run.sh`)
+
+### Local
 
 | Command | What it does |
 |---------|----------------|
@@ -148,10 +166,26 @@ docker compose down -v          # stop and delete DB volume (full wipe)
 | `./run.sh ensure` | Create missing DBs/tables; keep flags & progress |
 | `./run.sh install` | Drop lab DBs + flags, full rebuild |
 | `./run.sh reinstall` | Same as install |
-| `./run.sh uninstall` | Drop lab DBs + flags only (no rebuild) — come back later |
+| `./run.sh uninstall` | Drop lab DBs + flags only (no rebuild) |
 | `./run.sh status` | Version, databases, progress |
 | `./run.sh -y install` | Skip confirmation prompts |
 | `./run.sh help` | Show help |
+
+### Docker
+
+| Command | What it does |
+|---------|----------------|
+| `./run.sh docker up` | Build images and start `db` + `web` |
+| `./run.sh docker down` | Stop containers |
+| `./run.sh docker down -v` | Stop and remove the DB volume |
+| `./run.sh docker logs` | Tail web logs |
+| `./run.sh docker ps` | Show compose services |
+| `./run.sh docker shell` | Shell inside the web container |
+| `./run.sh docker status` | `setup_db status` in the container |
+| `./run.sh docker ensure` | `setup_db ensure` in the container |
+| `./run.sh docker install` | `setup_db install` in the container |
+| `./run.sh docker -y install` | Same, non-interactive |
+| `./run.sh docker uninstall` | `setup_db uninstall` in the container |
 
 Examples:
 
@@ -159,7 +193,12 @@ Examples:
 ./run.sh status
 ./run.sh install
 ./run.sh -y reinstall
-./run.sh uninstall
+
+./run.sh docker up
+./run.sh docker status
+./run.sh docker -y install
+./run.sh docker logs
+./run.sh docker down
 ```
 
 Environment overrides:
@@ -168,8 +207,11 @@ Environment overrides:
 |----------|--------|
 | `SQLI_CTF_FORCE_RESET=1` | Auto-confirm destructive ops / migrations |
 | `SQLI_CTF_SKIP_RESET=1` | Skip migrations |
-| `SQLI_CTF_SKIP_UPDATE=1` | Skip remote version check |
+| `SQLI_CTF_SKIP_UPDATE=1` | Skip remote version check in CLI `status` |
+| `SQLI_CTF_VERSION_URL=…` | Override `version.json` URL |
 | `SQLI_CTF_CONFIG=path` | Alternate config file |
+| `APP_VERSION` | Override local app version string |
+| `VERSION_CHECK_TIMEOUT` | HTTP timeout for version check (seconds) |
 
 ---
 
@@ -187,23 +229,23 @@ Environment overrides:
 ```text
 .
 ├── app/
-│   ├── main.py           # Flask routes & API
+│   ├── main.py           # Flask routes & API (incl. /api/version)
 │   ├── config.py         # Loads config.json / env
 │   ├── db.py             # Progress, history, flag check
 │   ├── levels/
 │   │   ├── handlers.py   # Intentionally vulnerable level handlers
 │   │   └── __init__.py   # Level metadata & registry
-│   ├── static/           # CSS / JS
+│   ├── static/           # CSS / JS (update modal)
 │   └── templates/        # Dashboard UI
 ├── scripts/
 │   └── setup_db.py       # DB toolkit (ensure / install / uninstall / …)
 ├── demo/                 # Static GitHub Pages preview
 ├── version/
-│   └── version.json      # Published version + changelog
+│   └── version.json      # Published version + changelog (GitHub)
 ├── config.json           # Local settings
 ├── docker-compose.yml
 ├── Dockerfile
-├── run.sh                # Main entrypoint
+├── run.sh                # Local + Docker entrypoint
 ├── requirements.txt
 └── README.md
 ```
@@ -223,12 +265,16 @@ TRUNCATE TABLE sqli_ctf_meta.attack_history;
 
 ```bash
 ./run.sh install
+# Docker:
+./run.sh docker -y install
 ```
 
 **Remove lab data from MySQL (keep source tree):**
 
 ```bash
 ./run.sh uninstall
+# Docker:
+./run.sh docker -y uninstall
 ```
 
 ---
@@ -241,7 +287,9 @@ TRUNCATE TABLE sqli_ctf_meta.attack_history;
 | `Can't connect to MySQL server` | Start MariaDB: `sudo systemctl start mariadb` |
 | `ModuleNotFoundError: flask` | Activate venv and `pip install -r requirements.txt` |
 | Port already in use | Change `PORT` in `config.json` |
-| Docker DB not ready | Wait for healthcheck; check `docker compose logs db` |
+| Docker DB not ready | Wait for healthcheck; `./run.sh docker logs` or `docker compose logs db` |
+| Permission denied on bind mounts (Fedora) | Compose already uses `:Z`; ensure SELinux is not blocking Docker |
+| Update modal never appears | Normal if you are on the latest version, offline, or dismissed it this session |
 
 ---
 
@@ -258,11 +306,17 @@ TRUNCATE TABLE sqli_ctf_meta.attack_history;
 
 ## Updates
 
-On `./run.sh ensure` / `install` / `status`, the toolkit may fetch:
+Version checks **do not block startup**.
 
-`https://raw.githubusercontent.com/you-in-you/sqli-playground/main/version/version.json`
+1. **Web UI** — After the dashboard loads, the client calls `/api/version/check`. The server fetches:
 
-If a newer version is published, you will see the changelog and a reminder to `git pull`.
+   `https://raw.githubusercontent.com/you-in-you/sqli-playground/main/version/version.json`
+
+   with a short timeout. If a newer version exists, a dismissible modal shows the changelog and a link to the repository. Closing it remembers the remote version for the browser session.
+
+2. **CLI** — `./run.sh status` (or `./run.sh docker status`) may still print a remote version summary. `ensure` / `install` no longer wait on the network for this check.
+
+To publish a release: bump `APP_VERSION` in code/config, update `version/version.json` (`version` + `changes`), and push to `main`.
 
 ---
 

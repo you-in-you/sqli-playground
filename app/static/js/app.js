@@ -4,6 +4,7 @@ const $$ = (s) => document.querySelectorAll(s);
 let currentLevel = 1;
 let currentFilter = "all";
 let levelsCache = [];
+let progressCurrent = 1;
 let nextLevelAfterSolve = null;
 let lastHistoryId = null;
 
@@ -37,6 +38,7 @@ function escapeHtml(s) {
 async function loadDashboard() {
   const data = await api("/api/levels");
   levelsCache = data.levels;
+  progressCurrent = data.progress.current_level || 1;
   $("#progress-count").textContent = data.progress.solved_count;
   renderLevels();
   await loadSolved();
@@ -53,21 +55,51 @@ function renderLevels() {
   filtered.forEach((level) => {
     const card = document.createElement("div");
     const isLocked = !level.unlocked && !level.solved;
-    card.className = `level-card${level.solved ? " solved" : ""}${isLocked ? " locked" : ""}`;
+    const isSolved = !!level.solved;
+    const isCurrent = !isLocked && !isSolved && level.id === progressCurrent;
+    let cls = "level-card";
+    if (isSolved) cls += " solved";
+    if (isLocked) cls += " locked";
+    if (isCurrent) cls += " current";
+    card.className = cls;
     if (level.diff) card.dataset.diff = level.diff;
     card.dataset.id = level.id;
 
+    let statusCode = "200";
+    let statusMsg = "OK";
+    if (isLocked) {
+      statusCode = "403";
+      statusMsg = "Access Denied";
+    } else if (isSolved) {
+      statusCode = "200";
+      statusMsg = "OK";
+    } else if (isCurrent) {
+      statusCode = "202";
+      statusMsg = "Found";
+    }
+
+    const face = isLocked
+      ? ""
+      : `<div class="card-face">
+        <div class="level-num">LEVEL ${String(level.id).padStart(2, "0")}</div>
+        <div class="level-name">${escapeHtml(level.name || "—")}</div>
+        <span class="level-diff">${getDiffLabel(level.diff)}</span>
+      </div>`;
+
+    // Locked: only status face (dim until hover, same pattern as before)
     if (isLocked) {
       card.innerHTML = `
-        <div class="locked-content">
-          <div class="locked-code">403</div>
-          <div class="locked-msg">Access Denied</div>
+        <div class="card-status card-status-static">
+          <div class="status-code">${statusCode}</div>
+          <div class="status-msg">${statusMsg}</div>
         </div>`;
     } else {
       card.innerHTML = `
-        <div class="level-num">LEVEL ${String(level.id).padStart(2, "0")}</div>
-        <div class="level-name">${level.name || "—"}</div>
-        <span class="level-diff">${getDiffLabel(level.diff)}</span>`;
+        ${face}
+        <div class="card-status">
+          <div class="status-code">${statusCode}</div>
+          <div class="status-msg">${statusMsg}</div>
+        </div>`;
       card.addEventListener("click", () => openLevel(level.id));
     }
     grid.appendChild(card);
@@ -267,6 +299,18 @@ $$(".tab").forEach((tab) => {
     renderLevels();
   });
 });
+
+
+/* Solved Flags accordion */
+const solvedToggle = $("#solved-toggle");
+if (solvedToggle) {
+  solvedToggle.addEventListener("click", () => {
+    const panel = $("#solved-flags");
+    const open = solvedToggle.getAttribute("aria-expanded") === "true";
+    solvedToggle.setAttribute("aria-expanded", open ? "false" : "true");
+    panel.classList.toggle("collapsed", open);
+  });
+}
 
 loadDashboard()
   .then(() => checkForUpdate())

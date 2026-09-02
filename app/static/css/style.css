@@ -329,3 +329,77 @@ body[data-diff="insane"] .level-header{border-left-color:var(--insane)}
   align-items: center;
   justify-content: center;
 }
+
+
+/* Level card status overlays (403 / 200 / 202) */
+.level-card .card-face{transition:opacity .18s ease}
+.level-card .card-status{
+  position:absolute;inset:0;
+  display:flex;flex-direction:column;align-items:center;justify-content:center;
+  opacity:0;pointer-events:none;transition:opacity .18s ease;
+  background:inherit;
+}
+.level-card .card-status .status-code{
+  font-size:20px;font-weight:800;letter-spacing:3px;transition:all .2s;
+}
+.level-card .card-status .status-msg{
+  font-size:9px;letter-spacing:1.5px;text-transform:uppercase;margin-top:3px;transition:all .2s;
+}
+.level-card.locked .card-status .status-code{color:#2a2a38}
+.level-card.locked .card-status .status-msg{color:#1e1e28}
+.level-card.locked:hover .card-face{opacity:0}
+.level-card.locked:hover .card-status{opacity:1}
+.level-card.locked:hover .card-status .status-code{color:var(--red);text-shadow:0 0 20px rgba(255,0,85,.55)}
+.level-card.locked:hover .card-status .status-msg{color:rgba(255,0,85,.55)}
+
+.level-card.solved{border-color:rgba(0,255,136,.3)}
+.level-card.solved .card-status .status-code{color:rgba(0,255,136,.25)}
+.level-card.solved .card-status .status-msg{color:rgba(0,255,136,.2)}
+.level-card.solved:hover{border-color:rgba(0,255,136,.55);background:#0c1410}
+.level-card.solved:hover .card-face{opacity:0}
+.level-card.solved:hover .card-status{opacity:1}
+.level-card.solved:hover .card-status .status-code{color:var(--easy);text-shadow:0 0 20px rgba(0,255,136,.45)}
+.level-card.solved:hover .card-status .status-msg{color:rgba(0,255,136,.65)}
+.level-card.solved::after{content:"✓";position:absolute;top:9px;right:11px;font-size:11px;color:var(--easy);font-weight:700;text-shadow:0 0 8px rgba(0,255,136,.4);z-index:2;transition:opacity .15s}
+.level-card.solved:hover::after{opacity:0}
+
+.level-card.current{border-color:rgba(255,145,0,.35)}
+.level-card.current .card-status .status-code{color:rgba(255,145,0,.28)}
+.level-card.current .card-status .status-msg{color:rgba(255,145,0,.22)}
+.level-card.current:hover{border-color:rgba(255,145,0,.6);background:#14100c}
+.level-card.current:hover .card-face{opacity:0}
+.level-card.current:hover .card-status{opacity:1}
+.level-card.current:hover .card-status .status-code{color:var(--hard);text-shadow:0 0 20px rgba(255,145,0,.5)}
+.level-card.current:hover .card-status .status-msg{color:rgba(255,145,0,.7)}
+
+/* Solved Flags accordion */
+.solved-toggle{
+  width:100%;
+  background:transparent;border:none;cursor:pointer;
+  display:flex;align-items:center;justify-content:space-between;gap:12px;
+  padding:0;margin:0 0 12px;font-family:var(--font);text-align:left;
+}
+.solved-toggle h2{margin:0}
+.solved-chevron{
+  font-size:12px;color:var(--dim);transition:transform .18s ease;
+}
+.solved-toggle[aria-expanded="true"] .solved-chevron{transform:rotate(90deg);color:var(--muted)}
+.solved-flags.collapsed{display:none}
+.solved-flags:not(.collapsed){display:flex;flex-direction:column;gap:8px}
+
+/* GitHub icon beside level badge */
+.header-right-level{display:flex;align-items:center;gap:10px}
+.btn-github{
+  display:inline-flex;align-items:center;justify-content:center;
+  width:28px;height:28px;border-radius:2px;
+  border:1px solid var(--border2);color:var(--muted);
+  background:transparent;transition:all .15s;text-decoration:none;
+}
+.btn-github:hover{
+  color:var(--text);border-color:var(--dim);background:var(--bg3);
+  box-shadow:0 0 12px rgba(255,255,255,.04);
+}
+
+.level-card.locked .card-status-static{
+  position:relative;opacity:1;min-height:50px;pointer-events:none;
+}

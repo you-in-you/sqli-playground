@@ -1,15 +1,18 @@
 #!/bin/bash
-# SQLi Playground — launcher & DB toolkit
-# Usage:
-#   ./run.sh                 ensure DB, then start the lab server
-#   ./run.sh start           same as above
-#   ./run.sh ensure          create missing DBs/tables (keep flags & progress)
-#   ./run.sh install         wipe lab DBs + flags, full rebuild
-#   ./run.sh reinstall       same as install
-#   ./run.sh uninstall       remove lab DBs + flags only (no rebuild)
-#   ./run.sh status          show version / databases / progress
-#   ./run.sh -y install      skip confirmation prompts
-#   ./run.sh help            show this help
+# SQLi Playground — launcher & DB toolkit (local + Docker)
+#
+# Local:
+#   ./run.sh                 ensure DB, start Flask
+#   ./run.sh status|install|reinstall|uninstall|ensure
+#   ./run.sh -y install
+#
+# Docker (same verbs, prefixed with docker):
+#   ./run.sh docker up       build + start stack
+#   ./run.sh docker down     stop stack
+#   ./run.sh docker logs     follow web logs
+#   ./run.sh docker status|ensure|install|reinstall|uninstall
+#   ./run.sh docker -y install
+#   ./run.sh docker shell    shell inside web container
 
 set -e
 cd "$(dirname "$0")"
@@ -24,6 +27,29 @@ export PYTHONPATH="$(pwd)"
 SETUP=(python3 scripts/setup_db.py)
 YES_ARGS=()
 CMD=""
+DOCKER_MODE=0
+
+need_compose() {
+  if command -v docker >/dev/null 2>&1 && docker compose version >/dev/null 2>&1; then
+    return 0
+  fi
+  echo "  Docker Compose not found. Install Docker Engine + Compose v2." >&2
+  exit 1
+}
+
+compose() {
+  docker compose "$@"
+}
+
+web_exec() {
+  # Prefer exec on running container; fall back to one-off run
+  if compose ps --status running 2>/dev/null | grep -q sqli-ctf-web; then
+    compose exec -T web "$@"
+  else
+    echo "  web is not running — using a one-off container…"
+    compose run --rm web "$@"
+  fi
+}
 
 print_help() {
   cat <<'HELP'
@@ -31,29 +57,46 @@ print_help() {
   SQLi Playground  —  ./run.sh
   https://github.com/you-in-you/sqli-playground
 
-  Commands:
-    start        Ensure databases, then start the Flask lab server (default)
+  Local commands:
+    start        Ensure databases, then start Flask (default)
     ensure       Create missing DBs/tables; keep flags & progress
-    install      DROP all lab databases + flags, then rebuild from scratch
+    install      DROP lab DBs + flags, full rebuild
     reinstall    Same as install
-    uninstall    DROP lab databases + flags only (no rebuild) — come back later
-    status       Show app version, databases, and progress
+    uninstall    DROP lab DBs + flags only — come back later
+    status       Show version / databases / progress
     help         Show this help
 
+  Docker commands:
+    docker up         Build images and start db + web
+    docker down       Stop containers
+    docker down -v    Stop and delete DB volume (full wipe)
+    docker logs       Tail web container logs
+    docker ps         Show compose services
+    docker shell      Open a shell in the web container
+    docker ensure     setup_db ensure inside web
+    docker install    setup_db install inside web
+    docker reinstall  setup_db reinstall inside web
+    docker uninstall  setup_db uninstall inside web
+    docker status     setup_db status inside web
+
   Options:
-    -y, --yes    Skip confirmation prompts (install / reinstall / uninstall)
+    -y, --yes    Skip confirmation prompts (works with local and docker *)
 
   Examples:
     ./run.sh
     ./run.sh status
-    ./run.sh install
-    ./run.sh -y reinstall
-    ./run.sh uninstall
-    ./run.sh ensure
+    ./run.sh -y install
+
+    ./run.sh docker up
+    ./run.sh docker status
+    ./run.sh docker -y install
+    ./run.sh docker logs
+    ./run.sh docker down
 
 HELP
 }
 
+# ── parse global -y and first command ───────────────────────────────────────
 while [ $# -gt 0 ]; do
   case "$1" in
     -y|--yes)
@@ -63,6 +106,11 @@ while [ $# -gt 0 ]; do
     -h|--help|help)
       print_help
       exit 0
+      ;;
+    docker)
+      DOCKER_MODE=1
+      shift
+      break
       ;;
     start|ensure|install|reinstall|uninstall|status)
       CMD="$1"
@@ -82,6 +130,71 @@ while [ $# -gt 0 ]; do
   esac
 done
 
+# ── Docker branch ───────────────────────────────────────────────────────────
+if [ "$DOCKER_MODE" -eq 1 ]; then
+  need_compose
+
+  # docker-level -y (e.g. ./run.sh docker -y install)
+  while [ $# -gt 0 ]; do
+    case "$1" in
+      -y|--yes)
+        YES_ARGS+=(-y)
+        shift
+        ;;
+      *)
+        break
+        ;;
+    esac
+  done
+
+  DCMD="${1:-up}"
+  shift || true
+
+  case "$DCMD" in
+    up|start)
+      echo "  Building & starting Docker stack…"
+      compose up --build -d
+      echo ""
+      echo "  Lab:  http://127.0.0.1:5000"
+      echo "  Logs: ./run.sh docker logs"
+      echo "  Stop: ./run.sh docker down"
+      echo ""
+      ;;
+    down|stop)
+      # pass through extra args (e.g. -v)
+      compose down "$@"
+      echo "  Stack stopped."
+      ;;
+    logs)
+      compose logs -f web "$@"
+      ;;
+    ps)
+      compose ps "$@"
+      ;;
+    shell|sh|bash)
+      if compose ps --status running 2>/dev/null | grep -q sqli-ctf-web; then
+        compose exec web bash -c 'command -v bash >/dev/null && exec bash || exec sh'
+      else
+        compose run --rm web bash -c 'command -v bash >/dev/null && exec bash || exec sh'
+      fi
+      ;;
+    ensure|install|reinstall|uninstall|status)
+      echo "  → docker: setup_db.py $DCMD"
+      web_exec python scripts/setup_db.py "${YES_ARGS[@]}" "$DCMD" "$@"
+      ;;
+    help|-h|--help)
+      print_help
+      ;;
+    *)
+      echo "Unknown docker command: $DCMD" >&2
+      echo "Try: ./run.sh help" >&2
+      exit 2
+      ;;
+  esac
+  exit 0
+fi
+
+# ── Local branch ────────────────────────────────────────────────────────────
 if [ -z "$CMD" ]; then
   CMD="start"
 fi

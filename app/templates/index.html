@@ -4,6 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>SQLi Playground — CTF Lab</title>
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='4' fill='%23050507'/%3E%3Ctext x='16' y='22' text-anchor='middle' font-size='18' font-family='system-ui,Segoe UI Symbol,sans-serif' fill='%23ff0055'%3E%E2%8C%98%3C/text%3E%3C/svg%3E" />
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@300;400;500;600;700;800&display=swap" rel="stylesheet" />
@@ -162,11 +163,40 @@
       <p id="success-flag-text" class="success-flag"></p>
       <div class="success-actions">
         <button id="btn-next-level" class="btn-attack">NEXT LEVEL</button>
+        <button id="btn-share-clear" class="btn-share" type="button">SHARE THIS</button>
         <button id="btn-back-dashboard" class="btn-ghost">DASHBOARD</button>
       </div>
     </div>
   </div>
 
+  
+  <div id="share-overlay" class="overlay hidden">
+    <div class="share-sheet">
+      <div class="share-top">
+        <h2>Share clear</h2>
+        <button id="btn-close-share" class="btn-ghost" type="button">✕</button>
+      </div>
+      <label class="share-label" for="share-payload">Payload on card</label>
+      <textarea id="share-payload" class="share-payload-input" spellcheck="false" rows="3"></textarea>
+      <div class="share-styles" id="share-styles">
+        <button type="button" class="share-style-tab active" data-style="1">Classic</button>
+        <button type="button" class="share-style-tab" data-style="2">Side</button>
+        <button type="button" class="share-style-tab" data-style="3">Terminal</button>
+        <button type="button" class="share-style-tab" data-style="4">Dense</button>
+        <button type="button" class="share-style-tab" data-style="5">Medal</button>
+        <button type="button" class="share-style-tab" data-style="6">Accent</button>
+      </div>
+      <div class="share-preview-wrap">
+        <div id="share-card-root" class="share-card-root"></div>
+      </div>
+      <div class="share-actions">
+        <button type="button" id="btn-share-download" class="btn-attack">DOWNLOAD PNG</button>
+        <button type="button" id="btn-share-copy" class="btn-ghost">COPY TEXT</button>
+      </div>
+    </div>
+  </div>
+
+<script src="https://cdn.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.min.js"></script>
   <script src="{{ url_for('static', filename='js/app.js') }}"></script>
 </body>
 </html>

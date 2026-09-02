@@ -29,6 +29,27 @@ YES_ARGS=()
 CMD=""
 DOCKER_MODE=0
 
+print_banner() {
+  # SQLi playground ASCII — green / red / purple (ANSI)
+  local G=$'\033[38;2;0;255;136m'
+  local R=$'\033[38;2;255;0;85m'
+  local P=$'\033[38;2;213;0;249m'
+  local D=$'\033[38;2;107;107;128m'
+  local N=$'\033[0m'
+  printf '%s\n' \
+"${D}·······················································································${N}" \
+"${R}:${G} ____   ___  _     _                 _                                             _ ${R}:${N}" \
+"${R}:${G}/ ___| / _ \\| |   (_)          _ __ | | __ _ _   _  __ _ _ __ ___  _   _ _ __   __| |${R}:${N}" \
+"${R}:${G}\\___ \\| | | | |   | |  _____  | '_ \\| |/ _\` | | | |/ _\` | '__/ _ \\| | | | '_ \\ / _\` |${R}:${N}" \
+"${R}:${P} ___) | |_| | |___| | |_____| | |_) | | (_| | |_| | (_| | | | (_) | |_| | | | | (_| |${R}:${N}" \
+"${R}:${P}|____/ \\__\\_\\_____|_|         | .__/|_|\\__,_|\\__, |\\__, |_|  \\___/ \\__,_|_| |_|\\__,_|${R}:${N}" \
+"${R}:${P}                              |_|            |___/ |___/                             ${R}:${N}" \
+"${D}·······················································································${N}"
+  printf '%s\n' "${D}  local SQLi CTF lab  ·  60 levels  ·  ${N}${R}no mercy${N}"
+  printf '\n'
+}
+
+
 need_compose() {
   if command -v docker >/dev/null 2>&1 && docker compose version >/dev/null 2>&1; then
     return 0
@@ -52,6 +73,7 @@ web_exec() {
 }
 
 print_help() {
+  print_banner
   cat <<'HELP'
 
   SQLi Playground  —  ./run.sh
@@ -152,6 +174,7 @@ if [ "$DOCKER_MODE" -eq 1 ]; then
 
   case "$DCMD" in
     up|start)
+      print_banner
       echo "  Building & starting Docker stack…"
       compose up --build -d
       echo ""
@@ -201,6 +224,7 @@ fi
 
 case "$CMD" in
   start)
+    print_banner
     "${SETUP[@]}" "${YES_ARGS[@]}" ensure
     HOST="$(python3 -c 'from app.config import HOST; print(HOST)')"
     PORT="$(python3 -c 'from app.config import PORT; print(PORT)')"

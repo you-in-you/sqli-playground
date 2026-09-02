@@ -4,48 +4,16 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>SQLi Playground — Live Demo</title>
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='4' fill='%23050507'/%3E%3Ctext x='16' y='22' text-anchor='middle' font-size='18' font-family='system-ui,Segoe UI Symbol,sans-serif' fill='%23ff0055'%3E%E2%8C%98%3C/text%3E%3C/svg%3E" />
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@300;400;500;600;700;800&display=swap" rel="stylesheet" />
   <link rel="stylesheet" href="style.css" />
-  <style>
-    .demo-banner {
-      background: #0a0a10;
-      border-bottom: 1px solid #1a1a24;
-      padding: 10px 28px;
-      font-size: 11px;
-      color: #6b6b80;
-      letter-spacing: 0.4px;
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      gap: 12px;
-      flex-wrap: wrap;
-      position: relative;
-      z-index: 2;
-    }
-    .demo-banner strong { color: #ff0055; letter-spacing: 1px; text-transform: uppercase; }
-    .demo-banner a {
-      color: #00ff88;
-      text-decoration: none;
-      border: 1px solid rgba(0,255,136,.3);
-      padding: 4px 10px;
-      border-radius: 2px;
-      font-weight: 700;
-      letter-spacing: 0.8px;
-      text-transform: uppercase;
-      font-size: 10px;
-    }
-    .demo-banner a:hover {
-      background: rgba(0,255,136,.08);
-      box-shadow: 0 0 12px rgba(0,255,136,.1);
-    }
-  </style>
 </head>
 <body>
   <div class="demo-banner">
-    <span><strong>Live demo</strong> — UI preview · Level 01 interactive · Levels 02–60 are visual only</span>
-    <a href="https://github.com/you-in-you/sqli-playground" target="_blank" rel="noopener">Get the full lab on GitHub</a>
+    <span><strong>Live demo</strong> — UI preview · Level 01 interactive · Levels 02–60 visual only</span>
+    <a href="https://github.com/you-in-you/sqli-playground" target="_blank" rel="noopener">Full lab on GitHub</a>
   </div>
 
   <div id="dashboard" class="page active">
@@ -78,8 +46,11 @@
         <div id="levels-grid" class="levels-grid"></div>
       </section>
       <section class="solved-section">
-        <div class="section-header"><h2>Solved Flags</h2></div>
-        <div id="solved-flags" class="solved-flags">
+        <button type="button" class="section-header solved-toggle" id="solved-toggle" aria-expanded="false">
+          <h2>Solved Flags</h2>
+          <span class="solved-chevron" aria-hidden="true">▸</span>
+        </button>
+        <div id="solved-flags" class="solved-flags collapsed">
           <p class="empty-state">No flags captured yet.</p>
         </div>
       </section>
@@ -92,7 +63,12 @@
         <button id="btn-back" class="btn-back" title="Back">←</button>
         <span class="logo-text">SQLi Playground</span>
       </div>
-      <div class="header-right">
+      <div class="header-right header-right-level">
+        <a id="btn-github" class="btn-github" href="https://github.com/you-in-you/sqli-playground" target="_blank" rel="noopener noreferrer" title="GitHub repository">
+          <svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true">
+            <path fill="currentColor" d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/>
+          </svg>
+        </a>
         <span id="level-badge" class="level-badge">LEVEL 01</span>
       </div>
     </header>
@@ -104,6 +80,7 @@
             <span id="level-difficulty" class="difficulty-tag">—</span>
           </div>
           <p id="level-desc" class="level-desc"></p>
+          <p id="demo-only-note" class="demo-only-note hidden">Demo only — full attack engine runs in the local lab.</p>
         </div>
 
         <div class="attack-panel">
@@ -121,7 +98,7 @@
               <input type="text" id="payload-pass" class="field-input" placeholder="password" autocomplete="off" spellcheck="false" />
             </div>
           </div>
-          <button id="btn-send-payload" class="btn-attack">EXECUTE</button>
+          <button id="btn-send-payload" class="btn-attack" type="button">EXECUTE</button>
         </div>
 
         <div id="response-area" class="response-panel hidden">
@@ -143,22 +120,12 @@
         <div class="flag-panel">
           <div class="flag-row">
             <input type="text" id="flag-input" class="flag-input" placeholder="CTF{...}" autocomplete="off" spellcheck="false" />
-            <button id="btn-submit-flag" class="btn-submit">SUBMIT</button>
+            <button id="btn-submit-flag" class="btn-submit" type="button">SUBMIT</button>
           </div>
           <div id="flag-message" class="flag-message hidden"></div>
         </div>
       </div>
     </main>
-  </div>
-
-  <div id="history-overlay" class="overlay hidden">
-    <div class="history-card">
-      <div class="history-top">
-        <h2 id="history-title">Level History</h2>
-        <button id="btn-close-history" class="btn-ghost">CLOSE</button>
-      </div>
-      <div id="history-body" class="history-body"></div>
-    </div>
   </div>
 
   <div id="success-overlay" class="overlay hidden">
@@ -167,12 +134,40 @@
       <h2>Level Cleared</h2>
       <p id="success-flag-text" class="success-flag"></p>
       <div class="success-actions">
-        <button id="btn-next-level" class="btn-attack">NEXT LEVEL</button>
-        <button id="btn-back-dashboard" class="btn-ghost">DASHBOARD</button>
+        <button id="btn-next-level" class="btn-attack" type="button">NEXT LEVEL</button>
+        <button id="btn-share-clear" class="btn-share" type="button">SHARE THIS</button>
+        <button id="btn-back-dashboard" class="btn-ghost" type="button">DASHBOARD</button>
       </div>
     </div>
   </div>
 
+  <div id="share-overlay" class="overlay hidden">
+    <div class="share-sheet">
+      <div class="share-top">
+        <h2>Share clear</h2>
+        <button id="btn-close-share" class="btn-ghost" type="button">✕</button>
+      </div>
+      <label class="share-label" for="share-payload">Payload on card</label>
+      <textarea id="share-payload" class="share-payload-input" spellcheck="false" rows="3"></textarea>
+      <div class="share-styles" id="share-styles">
+        <button type="button" class="share-style-tab active" data-style="1">Classic</button>
+        <button type="button" class="share-style-tab" data-style="2">Side</button>
+        <button type="button" class="share-style-tab" data-style="3">Terminal</button>
+        <button type="button" class="share-style-tab" data-style="4">Dense</button>
+        <button type="button" class="share-style-tab" data-style="5">Medal</button>
+        <button type="button" class="share-style-tab" data-style="6">Accent</button>
+      </div>
+      <div class="share-preview-wrap">
+        <div id="share-card-root" class="share-card-root"></div>
+      </div>
+      <div class="share-actions">
+        <button type="button" id="btn-share-download" class="btn-attack">DOWNLOAD PNG</button>
+        <button type="button" id="btn-share-copy" class="btn-ghost">COPY TEXT</button>
+      </div>
+    </div>
+  </div>
+
+  <script src="https://cdn.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.min.js"></script>
   <script src="app.js"></script>
 </body>
 </html>

@@ -7,6 +7,11 @@ let levelsCache = [];
 let progressCurrent = 1;
 let nextLevelAfterSolve = null;
 let lastHistoryId = null;
+let lastPayload = { username: "", password: "" };
+let shareLevelMeta = { id: 1, name: "", diff: "easy", epic: "" };
+let shareStyle = "1";
+const SHARE_REPO = "https://github.com/you-in-you/sqli-playground";
+const SHARE_REPO_HOST = "github.com/you-in-you/sqli-playground";
 
 async function api(path, opts = {}) {
   const res = await fetch(path, {
@@ -176,6 +181,12 @@ async function openLevel(id) {
     $("#level-desc").textContent = meta.desc;
     $("#hint-indirect-text").textContent = meta.hint_i;
     $("#hint-technical-text").textContent = meta.hint_t;
+    shareLevelMeta = {
+      id,
+      name: meta.name || "",
+      diff: meta.diff || "easy",
+      epic: meta.hint_i || "",
+    };
     $("#hint-technical").classList.add("hidden");
 
     $("#payload-input").value = "";
@@ -207,6 +218,7 @@ $("#btn-send-payload").addEventListener("click", async () => {
   content.textContent = "Executing...";
 
   try {
+    lastPayload = { username, password };
     const res = await api(`/api/level/${currentLevel}/attack`, {
       method: "POST",
       body: JSON.stringify({ username, password }),
@@ -309,6 +321,204 @@ if (solvedToggle) {
     const open = solvedToggle.getAttribute("aria-expanded") === "true";
     solvedToggle.setAttribute("aria-expanded", open ? "false" : "true");
     panel.classList.toggle("collapsed", open);
+  });
+}
+
+
+function shareGhLink() {
+  return `<a class="scard-gh" href="${SHARE_REPO}" target="_blank" rel="noopener noreferrer"><svg width="12" height="12" viewBox="0 0 16 16" aria-hidden="true"><path fill="currentColor" d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/></svg> ${SHARE_REPO_HOST}</a>`;
+}
+
+function formatSharePayloadHtml(raw) {
+  const t = (raw || "").trim() || "—";
+  const lines = t.split("\n");
+  return lines
+    .map((line) => {
+      const body = escapeHtml(line);
+      return `<span class="scard-sh">$</span><span class="scard-cmd">${body}</span>`;
+    })
+    .join("<br>");
+}
+
+function buildShareCardHtml(style, payload) {
+  const id = shareLevelMeta.id;
+  const name = escapeHtml(shareLevelMeta.name || "—");
+  const diff = getDiffLabel(shareLevelMeta.diff);
+  const epic = escapeHtml(shareLevelMeta.epic || "");
+  const pl = formatSharePayloadHtml(payload);
+  const lvl = String(id).padStart(2, "0");
+  const gh = shareGhLink();
+
+  if (style === "2") {
+    return `<div class="scard scard-v2" id="share-card-export" data-diff="${(shareLevelMeta.diff || "easy")}">
+      <div class="scard-side"><div class="scard-lvl">L${lvl}</div><div class="scard-diff">${diff}</div></div>
+      <div class="scard-body">
+        <div class="scard-title">${name}</div>
+        <div class="scard-epic">${epic}</div>
+        <div class="scard-payload">${pl}</div>
+        <div class="scard-foot">${gh}</div>
+      </div>
+    </div>`;
+  }
+  if (style === "3") {
+    return `<div class="scard scard-v3" id="share-card-export" data-diff="${(shareLevelMeta.diff || "easy")}">
+      <div class="scard-bar"><div class="scard-dots"><i></i><i></i><i></i></div>${gh}</div>
+      <div class="scard-body">
+        <div class="scard-line"><span class="g">✓</span> LEVEL ${lvl} CLEARED · ${name}</div>
+        <div class="scard-epic">${epic}</div>
+        <div class="scard-payload">${pl}</div>
+        <div class="scard-line">${diff} · ${id}/60</div>
+      </div>
+    </div>`;
+  }
+  if (style === "4") {
+    return `<div class="scard scard-v4" id="share-card-export" data-diff="${(shareLevelMeta.diff || "easy")}">
+      <div class="scard-head">
+        <div class="scard-row1"><div class="scard-lvl">LEVEL ${lvl}</div><div class="scard-cleared">Cleared</div></div>
+        <div class="scard-name">${name} · ${diff}</div>
+        ${gh}
+      </div>
+      <div class="scard-body">
+        <div class="scard-label">Epic</div>
+        <div class="scard-epic">${epic}</div>
+        <div class="scard-label">Payload</div>
+        <div class="scard-payload">${pl}</div>
+      </div>
+    </div>`;
+  }
+  if (style === "5") {
+    return `<div class="scard scard-v5" id="share-card-export" data-diff="${(shareLevelMeta.diff || "easy")}">
+      <div class="scard-art">
+        <div class="scard-ring">✓</div>
+        <span class="scard-lvl">LEVEL ${lvl}</span>
+        <div class="scard-name">${name}</div>
+      </div>
+      <div class="scard-body">
+        <div class="scard-epic">${epic}</div>
+        <div class="scard-payload">${pl}</div>
+        <div class="scard-foot">${gh}</div>
+      </div>
+    </div>`;
+  }
+  if (style === "6") {
+    return `<div class="scard scard-v6" id="share-card-export" data-diff="${(shareLevelMeta.diff || "easy")}">
+      <div class="scard-accent"></div>
+      <div class="scard-inner">
+        <div class="scard-toprow"><div class="scard-lvl">LEVEL ${lvl}</div><span class="scard-cleared">Cleared</span></div>
+        <div class="scard-title">${name}</div>
+        <div class="scard-epic">${epic}</div>
+        <div class="scard-payload">${pl}</div>
+        <div class="scard-foot">${gh}</div>
+      </div>
+    </div>`;
+  }
+  return `<div class="scard scard-v1" id="share-card-export" data-diff="${(shareLevelMeta.diff || "easy")}">
+    <div class="scard-art">
+      <div class="scard-lvl">LEVEL ${lvl}</div>
+      <div class="scard-sub">Cleared · SQLi Playground</div>
+    </div>
+    <div class="scard-body">
+      <div class="scard-title">${name} — solved</div>
+      <div class="scard-epic">${epic}</div>
+      <div class="scard-payload">${pl}</div>
+      <div class="scard-foot">${gh}</div>
+    </div>
+  </div>`;
+}
+
+function renderSharePreview() {
+  const root = $("#share-card-root");
+  if (!root) return;
+  const payload = $("#share-payload") ? $("#share-payload").value : "";
+  root.innerHTML = buildShareCardHtml(shareStyle, payload);
+}
+
+function openShareModal() {
+  const ta = $("#share-payload");
+  let pre = lastPayload.username || "";
+  if (lastPayload.password) pre += (pre ? "\n" : "") + lastPayload.password;
+  if (ta) ta.value = pre;
+  shareStyle = "1";
+  $$(".share-style-tab").forEach((t) => t.classList.toggle("active", t.dataset.style === "1"));
+  renderSharePreview();
+  $("#share-overlay").classList.remove("hidden");
+}
+
+function closeShareModal() {
+  $("#share-overlay").classList.add("hidden");
+}
+
+function shareCaptionText() {
+  const id = shareLevelMeta.id;
+  const name = shareLevelMeta.name || "level";
+  return (
+    `Cleared Level ${id} on SQLi Playground — ${name}\n` +
+    `${id}/60 · local SQLi CTF lab\n` +
+    SHARE_REPO
+  );
+}
+
+const _btnShareClear = $("#btn-share-clear");
+if (_btnShareClear) {
+  _btnShareClear.addEventListener("click", () => openShareModal());
+}
+const _btnCloseShare = $("#btn-close-share");
+if (_btnCloseShare) {
+  _btnCloseShare.addEventListener("click", () => closeShareModal());
+}
+const _shareOverlay = $("#share-overlay");
+if (_shareOverlay) {
+  _shareOverlay.addEventListener("click", (e) => {
+    if (e.target.id === "share-overlay") closeShareModal();
+  });
+}
+$$(".share-style-tab").forEach((tab) => {
+  tab.addEventListener("click", () => {
+    shareStyle = tab.dataset.style || "1";
+    $$(".share-style-tab").forEach((t) => t.classList.remove("active"));
+    tab.classList.add("active");
+    renderSharePreview();
+  });
+});
+const _sharePayload = $("#share-payload");
+if (_sharePayload) {
+  _sharePayload.addEventListener("input", () => renderSharePreview());
+}
+const _btnShareCopy = $("#btn-share-copy");
+if (_btnShareCopy) {
+  _btnShareCopy.addEventListener("click", async () => {
+    try {
+      await navigator.clipboard.writeText(shareCaptionText());
+      _btnShareCopy.textContent = "COPIED";
+      setTimeout(() => { _btnShareCopy.textContent = "COPY TEXT"; }, 1200);
+    } catch (_) {}
+  });
+}
+const _btnShareDl = $("#btn-share-download");
+if (_btnShareDl) {
+  _btnShareDl.addEventListener("click", async () => {
+    const node = $("#share-card-export");
+    if (!node || typeof html2canvas !== "function") {
+      alert("Export unavailable");
+      return;
+    }
+    _btnShareDl.textContent = "…";
+    try {
+      const canvas = await html2canvas(node, {
+        backgroundColor: "#0a0a10",
+        scale: 2,
+        useCORS: true,
+      });
+      const a = document.createElement("a");
+      const id = String(shareLevelMeta.id).padStart(2, "0");
+      a.download = `sqli-playground-level-${id}.png`;
+      a.href = canvas.toDataURL("image/png");
+      a.click();
+    } catch (e) {
+      console.error(e);
+      alert("PNG export failed");
+    }
+    _btnShareDl.textContent = "DOWNLOAD PNG";
   });
 }
 

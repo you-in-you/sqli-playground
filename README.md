@@ -14,10 +14,22 @@ Real vulnerable queries. Isolated databases per level. Random flags per install.
 
 ## Preview
 
-![SQLi Playground dashboard](photo.png)
+![SQLi Playground dashboard](pictures/photo.png)
 
 Static UI preview (no database): **[Live Demo](https://you-in-you.github.io/sqli-playground/demo/)**  
 Level 01 is interactive in the browser; the full lab needs a local install.
+
+### Share cards
+
+After clearing a level you can export a difficulty-colored share card (six layouts). Examples by tier:
+
+| Easy | Medium | Hard |
+|:----:|:------:|:----:|
+| ![Easy share card](pictures/easy.png) | ![Medium share card](pictures/medium.png) | ![Hard share card](pictures/hard.png) |
+
+| Expert | Insane |
+|:------:|:------:|
+| ![Expert share card](pictures/expert.png) | ![Insane share card](pictures/insane.png) |
 
 ---
 
@@ -29,6 +41,7 @@ Level 01 is interactive in the browser; the full lab needs a local install.
 - **Random flags** — `CTF{sql1_lXX_........}` generated at setup
 - **Safe control plane** — progress, history, and flag checks use parameterized queries
 - **Attack history** — review payloads that solved each level
+- **Share cards** — export a PNG after a clear (styles + difficulty colors)
 - **Dark CTF UI** — difficulty-colored cards, filters, progressive unlock
 - **CLI toolkit** — `./run.sh` for local **and** Docker workflows
 - **Non-blocking update check** — after the dashboard loads, the UI compares the local version with GitHub `version/version.json` and shows a dismissible modal if a newer release exists (launch is never stalled by a slow network)
@@ -242,6 +255,7 @@ Environment overrides:
 ├── demo/                 # Static GitHub Pages preview
 ├── version/
 │   └── version.json      # Published version + changelog (GitHub)
+├── pictures/             # README screenshots & share-card samples
 ├── config.json           # Local settings
 ├── docker-compose.yml
 ├── Dockerfile

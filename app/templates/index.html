@@ -12,6 +12,8 @@
 </head>
 <body>
   <div id="dashboard" class="page active">
+    <div class="bg-circuit" aria-hidden="true"></div>
+    <svg class="circuit-glow" id="circuit-glow-dash" viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true"></svg>
     <header class="header">
       <div class="logo">
         <span class="logo-icon">⌘</span>
@@ -53,6 +55,8 @@
   </div>
 
   <div id="level-page" class="page">
+    <div class="bg-circuit" aria-hidden="true"></div>
+    <svg class="circuit-glow" id="circuit-glow-level" viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true"></svg>
     <header class="header">
       <div class="logo">
         <button id="btn-back" class="btn-back" title="Back">←</button>
@@ -120,6 +124,9 @@
         </div>
       </div>
     </main>
+    <div class="live-shell" id="live-shell" aria-hidden="true">
+      <span class="prompt">$</span><span class="cmd ghost" id="live-cmd"></span>
+    </div>
   </div>
 
 

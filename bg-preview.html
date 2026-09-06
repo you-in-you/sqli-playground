@@ -1,0 +1,403 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>BG test — original circuit 03 + soft hover · glass 3 · status borders</title>
+  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
+  <style>
+    :root {
+      --bg: #050507; --border: #1a1a24; --border2: #252533;
+      --text: #e4e4ef; --muted: #6b6b80; --dim: #3d3d50;
+      --easy: #00ff88; --medium: #00e5ff; --hard: #ff9100;
+      --expert: #d500f9; --insane: #ff0055; --red: #ff0055; --cyan: #00e5ff;
+      --font: "JetBrains Mono", monospace;
+      /* surface 3 — clear glass */
+      --card-bg: rgba(10,10,14,.55);
+      --card-blur: 14px;
+      --panel-bg: rgba(10,10,14,.6);
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: var(--font); background: #050507; color: var(--text);
+      min-height: 100vh; font-variant-ligatures: none;
+      font-feature-settings: "liga" 0, "calt" 0;
+    }
+    .page { display: none; min-height: 100vh; flex-direction: column; position: relative; }
+    .page.active { display: flex; }
+
+    .header {
+      display: flex; align-items: center; justify-content: space-between;
+      padding: 12px 28px; border-bottom: 1px solid var(--border);
+      background: rgba(10,10,14,.88); backdrop-filter: blur(10px);
+      position: sticky; top: 0; z-index: 20;
+    }
+    .logo { display: flex; align-items: center; gap: 10px; cursor: pointer; }
+    .logo-icon { color: var(--red); text-shadow: 0 0 12px rgba(255,0,85,.5); }
+    .logo-text { font-size: 12px; font-weight: 700; letter-spacing: 1.8px; text-transform: uppercase; }
+    .progress { font-size: 11px; color: var(--muted); }
+    .progress b { color: var(--easy); }
+    .badge {
+      border: 1px solid rgba(0,255,136,.3); padding: 4px 10px; border-radius: 2px;
+      color: var(--easy); font-size: 10px; letter-spacing: 1px;
+    }
+
+    .main { flex: 1; padding: 28px; max-width: 960px; margin: 0 auto; width: 100%; position: relative; z-index: 1; }
+    .hero { border-left: 2px solid var(--red); padding-left: 14px; margin-bottom: 28px; }
+    .hero h2 { font-size: 18px; letter-spacing: 2px; text-transform: uppercase; margin-bottom: 4px; }
+    .hero p { font-size: 11px; color: var(--muted); }
+    .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); gap: 8px; }
+
+    /* cards: glass 3 + difficulty border */
+    .card {
+      --accent: var(--easy);
+      background: var(--card-bg);
+      border: 1px solid color-mix(in srgb, var(--accent) 28%, #1a1a24);
+      backdrop-filter: blur(var(--card-blur));
+      -webkit-backdrop-filter: blur(var(--card-blur));
+      border-radius: 3px; padding: 12px; min-height: 72px; cursor: pointer;
+      position: relative; overflow: hidden;
+      transition: border-color .15s, box-shadow .15s, background .15s;
+    }
+    .card[data-diff="easy"] { --accent: var(--easy); }
+    .card[data-diff="medium"] { --accent: var(--medium); }
+    .card[data-diff="hard"] { --accent: var(--hard); }
+    .card[data-diff="expert"] { --accent: var(--expert); }
+    .card[data-diff="insane"] { --accent: var(--insane); }
+
+    /* status hover overlay — like main app */
+    .card .status {
+      position: absolute; inset: 0; display: flex; align-items: center; justify-content: center;
+      font-size: 11px; font-weight: 700; letter-spacing: 1.2px;
+      opacity: 0; transition: opacity .15s;
+      background: rgba(5,5,7,.55); backdrop-filter: blur(2px);
+      pointer-events: none;
+    }
+    .card:hover .status { opacity: 1; }
+    .card[data-state="locked"] .status { color: #ff5e7a; }
+    .card[data-state="current"] .status { color: #ff9100; }
+    .card[data-state="solved"] .status { color: var(--easy); }
+    .card[data-state="locked"]:hover {
+      border-color: rgba(255,94,122,.55);
+      box-shadow: 0 0 16px rgba(255,94,122,.12);
+    }
+    .card[data-state="current"]:hover {
+      border-color: rgba(255,145,0,.55);
+      box-shadow: 0 0 16px rgba(255,145,0,.12);
+    }
+    .card[data-state="solved"]:hover {
+      border-color: rgba(0,255,136,.55);
+      box-shadow: 0 0 16px rgba(0,255,136,.12);
+    }
+    .card:not(:hover) {
+      border-color: color-mix(in srgb, var(--accent) 28%, #1a1a24);
+    }
+    .card .n { font-size: 9px; color: var(--dim); letter-spacing: 1px; margin-bottom: 4px; }
+    .card .t { font-size: 12px; }
+    .card .d { font-size: 9px; color: var(--accent); margin-top: 8px; text-transform: uppercase; }
+
+    .level-main { max-width: 520px; }
+    .level-title { font-size: 16px; margin-bottom: 6px; }
+    .level-desc { font-size: 12px; color: var(--muted); margin-bottom: 18px; }
+    .panel {
+      background: var(--panel-bg);
+      border: 1px solid color-mix(in srgb, var(--easy) 22%, #1a1a24);
+      backdrop-filter: blur(var(--card-blur));
+      -webkit-backdrop-filter: blur(var(--card-blur));
+      border-radius: 3px; padding: 14px;
+    }
+    label { font-size: 10px; color: var(--muted); display: block; }
+    .field {
+      width: 100%; font-family: var(--font); font-size: 12px; color: var(--text);
+      background: rgba(10,10,15,.7); border: 1px solid #1c1c28; border-radius: 2px;
+      padding: 10px; margin-top: 6px; margin-bottom: 12px;
+      font-variant-ligatures: none;
+    }
+    .field:focus { outline: none; border-color: rgba(0,255,136,.35); color: var(--easy); }
+    .btn {
+      width: 100%; font-family: var(--font); font-size: 10px; font-weight: 700;
+      letter-spacing: 1px; text-transform: uppercase; padding: 11px;
+      background: transparent; border: 1px solid rgba(0,255,136,.35); color: var(--easy);
+      border-radius: 2px; cursor: pointer;
+    }
+    .btn:hover { background: rgba(0,255,136,.08); }
+
+    .testbar {
+      position: fixed; bottom: 16px; right: 16px; z-index: 50;
+      display: flex; gap: 6px;
+    }
+    .testbar button {
+      font-family: var(--font); font-size: 10px; font-weight: 700;
+      letter-spacing: .8px; text-transform: uppercase; padding: 8px 12px;
+      border: 1px solid var(--border2); background: rgba(10,10,14,.95);
+      color: var(--muted); border-radius: 2px; cursor: pointer;
+    }
+    .testbar button.active {
+      color: var(--easy); border-color: rgba(0,255,136,.4);
+    }
+
+    /* ===== ORIGINAL circuit 03 (CSS) — unchanged look ===== */
+    .bg-circuit {
+      position: absolute; inset: 0; z-index: 0; pointer-events: none; overflow: hidden;
+      background:
+        radial-gradient(circle at 20% 30%, rgba(255,0,85,.28) 0 2.5px, transparent 3.5px),
+        radial-gradient(circle at 45% 18%, rgba(213,0,249,.25) 0 2px, transparent 3px),
+        radial-gradient(circle at 70% 40%, rgba(255,0,85,.22) 0 2px, transparent 3px),
+        radial-gradient(circle at 55% 68%, rgba(213,0,249,.22) 0 2px, transparent 3px),
+        radial-gradient(circle at 30% 72%, rgba(255,0,85,.2) 0 2px, transparent 3px),
+        radial-gradient(ellipse 60% 40% at 40% 40%, rgba(255,0,85,.06), transparent 60%),
+        #050507;
+    }
+    .bg-circuit::after {
+      content: ""; position: absolute; inset: 0;
+      background:
+        linear-gradient(90deg, transparent 19%, rgba(255,0,85,.14) 19%, rgba(255,0,85,.14) 19.14%, transparent 19.14%),
+        linear-gradient(0deg, transparent 29%, rgba(255,0,85,.12) 29%, rgba(255,0,85,.12) 29.14%, transparent 29.14%),
+        linear-gradient(90deg, transparent 44%, rgba(213,0,249,.12) 44%, rgba(213,0,249,.12) 44.14%, transparent 44.14%),
+        linear-gradient(0deg, transparent 17%, rgba(213,0,249,.1) 17%, rgba(213,0,249,.1) 17.14%, transparent 17.14%),
+        linear-gradient(90deg, transparent 69%, rgba(255,0,85,.12) 69%, rgba(255,0,85,.12) 69.14%, transparent 69.14%),
+        linear-gradient(0deg, transparent 39%, rgba(255,0,85,.1) 39%, rgba(255,0,85,.1) 39.14%, transparent 39.14%),
+        linear-gradient(90deg, transparent 54%, rgba(213,0,249,.1) 54%, rgba(213,0,249,.1) 54.14%, transparent 54.14%),
+        linear-gradient(0deg, transparent 67%, rgba(213,0,249,.1) 67%, rgba(213,0,249,.1) 67.14%, transparent 67.14%);
+    }
+
+    /* hover glow layer — invisible at rest, only boosts near cursor */
+    .circuit-glow {
+      position: absolute; inset: 0; z-index: 0; width: 100%; height: 100%;
+      pointer-events: none;
+    }
+    .circuit-glow line {
+      fill: none; stroke-linecap: butt;
+      stroke-width: 0.18; /* thin in viewBox 0..100 → ~1–2px on screen */
+      stroke-opacity: 0;
+      transition: stroke-opacity .1s linear, filter .1s linear;
+    }
+    .circuit-glow circle {
+      fill-opacity: 0;
+      transition: fill-opacity .1s linear, filter .1s linear;
+    }
+
+    .live-shell {
+      position: absolute; left: 0; right: 0; bottom: 0; z-index: 2;
+      pointer-events: none;
+      padding: 18px 28px 22px;
+      background: linear-gradient(to top, rgba(5,5,7,.92) 35%, transparent);
+      font-size: 13px; line-height: 1.5;
+      white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+    }
+    .live-shell .prompt {
+      color: var(--easy);
+      text-shadow: 0 0 10px rgba(0,255,136,.45);
+      font-weight: 700; margin-right: 8px;
+    }
+    .live-shell .cmd { color: rgba(228,228,239,.7); }
+    .live-shell .cmd.ghost { color: rgba(0,255,136,.28); }
+  </style>
+</head>
+<body>
+  <div id="dash" class="page active">
+    <div class="bg-circuit"></div>
+    <svg class="circuit-glow" id="glow-dash" viewBox="0 0 100 100" preserveAspectRatio="none"></svg>
+    <header class="header">
+      <div class="logo"><span class="logo-icon">⌘</span><span class="logo-text">SQLi Playground</span></div>
+      <span class="progress">Progress: <b>1</b>/60</span>
+    </header>
+    <main class="main">
+      <div class="hero">
+        <h2>SQL Injection Lab</h2>
+        <p>60 levels • Progressive • No mercy • Local only</p>
+      </div>
+      <div class="grid">
+        <div class="card" data-diff="easy" data-state="solved" data-open="level">
+          <div class="status">200 OK</div>
+          <div class="n">LEVEL 01</div><div class="t">Auth Bypass</div><div class="d">easy</div>
+        </div>
+        <div class="card" data-diff="easy" data-state="current" data-open="level">
+          <div class="status">202 FOUND</div>
+          <div class="n">LEVEL 02</div><div class="t">No Comments</div><div class="d">easy</div>
+        </div>
+        <div class="card" data-diff="medium" data-state="locked">
+          <div class="status">403 FORBIDDEN</div>
+          <div class="n">LEVEL 16</div><div class="t">Typed UNION</div><div class="d">medium</div>
+        </div>
+        <div class="card" data-diff="hard" data-state="locked">
+          <div class="status">403 FORBIDDEN</div>
+          <div class="n">LEVEL 31</div><div class="t">Boolean Channel</div><div class="d">hard</div>
+        </div>
+        <div class="card" data-diff="expert" data-state="locked">
+          <div class="status">403 FORBIDDEN</div>
+          <div class="n">LEVEL 46</div><div class="t">WAF Obfuscation</div><div class="d">expert</div>
+        </div>
+        <div class="card" data-diff="insane" data-state="locked">
+          <div class="status">403 FORBIDDEN</div>
+          <div class="n">LEVEL 60</div><div class="t">Final Gate</div><div class="d">insane</div>
+        </div>
+      </div>
+    </main>
+  </div>
+
+  <div id="level" class="page">
+    <div class="bg-circuit"></div>
+    <svg class="circuit-glow" id="glow-level" viewBox="0 0 100 100" preserveAspectRatio="none"></svg>
+    <header class="header">
+      <div class="logo" id="backDash">
+        <span class="logo-icon">←</span>
+        <span class="logo-text">SQLi Playground</span>
+      </div>
+      <span class="badge">LEVEL 01</span>
+    </header>
+    <main class="main level-main">
+      <h2 class="level-title">Auth Bypass</h2>
+      <p class="level-desc">Bypass login and become admin.</p>
+      <div class="panel">
+        <div style="font-size:10px;color:var(--dim);margin-bottom:10px">POST /login</div>
+        <label for="username">username</label>
+        <input class="field" id="username" type="text" autocomplete="off" spellcheck="false" />
+        <label for="password">password</label>
+        <input class="field" id="password" type="text" autocomplete="off" spellcheck="false" />
+        <button type="button" class="btn">EXECUTE</button>
+      </div>
+    </main>
+    <div class="live-shell">
+      <span class="prompt">$</span><span class="cmd ghost" id="liveCmd"></span>
+    </div>
+  </div>
+
+  <div class="testbar">
+    <button type="button" class="active" data-go="dash">Dashboard</button>
+    <button type="button" data-go="level">Level</button>
+  </div>
+
+  <script>
+    const DEFAULT_QUERY = "SELECT id, username, role FROM users WHERE username = 'admin'-- -";
+    const dash = document.getElementById("dash");
+    const level = document.getElementById("level");
+    const user = document.getElementById("username");
+    const pass = document.getElementById("password");
+    const liveCmd = document.getElementById("liveCmd");
+
+    function show(page) {
+      dash.classList.toggle("active", page === "dash");
+      level.classList.toggle("active", page === "level");
+      document.querySelectorAll(".testbar button").forEach((b) => {
+        b.classList.toggle("active", b.dataset.go === page);
+      });
+    }
+
+    function updateLive() {
+      const parts = [];
+      if (user.value) parts.push(user.value);
+      if (pass.value) parts.push(pass.value);
+      if (!parts.length) {
+        liveCmd.textContent = DEFAULT_QUERY;
+        liveCmd.classList.add("ghost");
+      } else {
+        liveCmd.textContent = parts.join("  ·  ");
+        liveCmd.classList.remove("ghost");
+      }
+    }
+    user.addEventListener("input", updateLive);
+    pass.addEventListener("input", updateLive);
+    updateLive();
+
+    document.querySelectorAll(".testbar button").forEach((b) => {
+      b.addEventListener("click", () => show(b.dataset.go));
+    });
+    document.querySelectorAll("[data-open='level']").forEach((c) => {
+      c.addEventListener("click", () => show("level"));
+    });
+    document.getElementById("backDash").addEventListener("click", () => show("dash"));
+
+    /* Glow layer mirrors original circuit geometry (thin, only visible near cursor) */
+    const SEGS = [
+      // vertical @ 19% from y 0–29, horizontal to 44 @ y29, etc. — match CSS % stops
+      [19, 0, 19, 29, "#ff0055"],
+      [19, 29, 44, 29, "#ff0055"],
+      [44, 17, 44, 40, "#d500f9"],
+      [44, 40, 69, 40, "#d500f9"],
+      [69, 0, 69, 40, "#ff0055"],
+      [69, 40, 69, 68, "#ff0055"],
+      [54, 68, 69, 68, "#d500f9"],
+      [54, 68, 54, 100, "#d500f9"],
+      [30, 72, 54, 72, "#ff0055"],
+      [30, 40, 30, 72, "#ff0055"],
+      [0, 40, 30, 40, "#ff0055"],
+      [44, 17, 70, 17, "#d500f9"],
+      [0, 67, 54, 67, "#d500f9"],
+      [54, 0, 54, 40, "#d500f9"],
+    ];
+    const NODES = [
+      [20, 30, "#ff0055"], [45, 18, "#d500f9"], [70, 40, "#ff0055"],
+      [55, 68, "#d500f9"], [30, 72, "#ff0055"],
+    ];
+
+    function distSeg(px, py, x1, y1, x2, y2) {
+      const dx = x2 - x1, dy = y2 - y1;
+      const len2 = dx * dx + dy * dy || 1;
+      let t = ((px - x1) * dx + (py - y1) * dy) / len2;
+      t = Math.max(0, Math.min(1, t));
+      return Math.hypot(px - (x1 + t * dx), py - (y1 + t * dy));
+    }
+
+    function wireGlow(pageEl, svgId) {
+      const svg = document.getElementById(svgId);
+      const lines = [];
+      const dots = [];
+      SEGS.forEach(([x1, y1, x2, y2, color]) => {
+        const line = document.createElementNS("http://www.w3.org/2000/svg", "line");
+        line.setAttribute("x1", x1); line.setAttribute("y1", y1);
+        line.setAttribute("x2", x2); line.setAttribute("y2", y2);
+        line.setAttribute("stroke", color);
+        line.setAttribute("stroke-opacity", "0");
+        svg.appendChild(line);
+        lines.push({ el: line, x1, y1, x2, y2 });
+      });
+      NODES.forEach(([x, y, color]) => {
+        const c = document.createElementNS("http://www.w3.org/2000/svg", "circle");
+        c.setAttribute("cx", x); c.setAttribute("cy", y);
+        c.setAttribute("r", "0.55");
+        c.setAttribute("fill", color);
+        c.setAttribute("fill-opacity", "0");
+        svg.appendChild(c);
+        dots.push({ el: c, x, y });
+      });
+
+      const R = 10;
+      pageEl.addEventListener("mousemove", (e) => {
+        const rect = pageEl.getBoundingClientRect();
+        const px = ((e.clientX - rect.left) / rect.width) * 100;
+        const py = ((e.clientY - rect.top) / rect.height) * 100;
+        lines.forEach(({ el, x1, y1, x2, y2 }) => {
+          const d = distSeg(px, py, x1, y1, x2, y2);
+          if (d < R) {
+            const t = 1 - d / R;
+            el.setAttribute("stroke-opacity", (t * 0.55).toFixed(3));
+            el.style.filter = t > 0.2 ? `drop-shadow(0 0 ${3 + t * 6}px ${el.getAttribute("stroke")})` : "none";
+          } else {
+            el.setAttribute("stroke-opacity", "0");
+            el.style.filter = "none";
+          }
+        });
+        dots.forEach(({ el, x, y }) => {
+          const d = Math.hypot(px - x, py - y);
+          if (d < R * 0.8) {
+            const t = 1 - d / (R * 0.8);
+            el.setAttribute("fill-opacity", (t * 0.7).toFixed(3));
+            el.style.filter = `drop-shadow(0 0 ${2 + t * 5}px ${el.getAttribute("fill")})`;
+          } else {
+            el.setAttribute("fill-opacity", "0");
+            el.style.filter = "none";
+          }
+        });
+      });
+      pageEl.addEventListener("mouseleave", () => {
+        lines.forEach(({ el }) => { el.setAttribute("stroke-opacity", "0"); el.style.filter = "none"; });
+        dots.forEach(({ el }) => { el.setAttribute("fill-opacity", "0"); el.style.filter = "none"; });
+      });
+    }
+
+    wireGlow(dash, "glow-dash");
+    wireGlow(level, "glow-level");
+  </script>
+</body>
+</html>

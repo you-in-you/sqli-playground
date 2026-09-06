@@ -1020,11 +1020,8 @@ def handle_15(p: dict) -> dict:
         "raw": r.get("raw") or "",
     }
 
-
-
-# ───────────────────────── Level 16 — Union with Types ─────────────────────────
 def handle_16(p: dict) -> dict:
-    """UNION must align column types (id INT, username/role strings)."""
+    """UNION extraction; DB enforces column count/types. Results are visible (not blind)."""
     u = p.get("username", "")
     lowered = u.lower()
 
@@ -1034,56 +1031,182 @@ def handle_16(p: dict) -> dict:
     if r.get("error"):
         return {
             "ok": False,
-            "message": "Query error — check column count and types (use NULL/CAST).",
+            "message": "Query failed.",
             "raw": r.get("raw") or str(r.get("error")),
             "error": r.get("error"),
         }
 
     rows = r.get("rows") or []
+    raw = r.get("raw") or ""
+
+    if len(rows) > 5:
+        return {"ok": False, "message": "Rejected.", "raw": ""}
+
     blob = _rows_blob(rows)
 
-    # Require UNION-based extraction (not plain dump of users table alone)
-    if "CTF{" in blob and "union" in lowered:
+    if "union" in lowered and "CTF{" in blob:
         flag_val = _get_flag(16)
-        # Prefer flag from result if present
         for row in rows:
-            for v in row.values():
-                s = str(v)
+            vals = row.values() if isinstance(row, dict) else row
+            for v in vals:
+                s = str(v) if v is not None else ""
                 if s.startswith("CTF{"):
                     flag_val = s
                     break
         return {
             "ok": True,
-            "message": f"UNION types aligned. Flag: {flag_val}" if flag_val else "UNION types aligned.",
-            "raw": r.get("raw") or "",
-        }
-
-    if len(rows) > 5:
-        return {
-            "ok": False,
-            "message": "Too many rows — do not dump the whole table. Use a precise UNION SELECT.",
-            "raw": "",
-        }
-
-    if rows:
-        return {
-            "ok": False,
-            "message": "Rows returned, but flag not extracted via typed UNION. Match 3 columns (int, str, str).",
-            "raw": r.get("raw") or "",
+            "message": f"OK. Flag: {flag_val}",
+            "raw": raw,
         }
 
     return {
         "ok": False,
-        "message": "No rows. Try UNION SELECT with matching types (NULL/CAST help).",
-        "raw": r.get("raw") or "",
+        "message": "OK." if rows else "No rows.",
+        "raw": raw,
     }
 
+# ───────────────────────── Level 17 — Wide secrets + LIMIT 1 ─────────────────────────
+_LEVEL_17_COL_WORDS = (
+    "alpha", "bravo", "charlie", "delta", "echo", "foxtrot", "golf", "hotel",
+    "indigo", "juliet", "kilo", "lima", "marble", "nebula", "omega", "prism",
+    "quartz", "raven", "silver", "tango", "umbra", "vector", "willow", "xenon",
+    "yellow", "zephyr", "cipher", "harbor", "ignite", "jade", "kepler", "lunar",
+    "meteor", "nova", "orbit", "pixel", "quark", "relay", "solar", "trace",
+)
 
-# ───────────────────────── Level 17 — Union + Limit ─────────────────────────
+
+def _level_17_col_count() -> int:
+    r = _run(
+        17,
+        "SELECT COUNT(*) AS c FROM information_schema.columns "
+        "WHERE table_schema = DATABASE() AND table_name = 'secrets'",
+    )
+    if not r.get("rows"):
+        return 0
+    row = r["rows"][0]
+    return int(row.get("c") or 0)
+
+
+def _level_17_extra_cols() -> list[str]:
+    r = _run(
+        17,
+        "SELECT column_name AS c FROM information_schema.columns "
+        "WHERE table_schema = DATABASE() AND table_name = 'secrets' "
+        "AND column_name NOT IN ('id','name','flag')",
+    )
+    out = []
+    for row in r.get("rows") or []:
+        name = row.get("c") or row.get("column_name")
+        if name:
+            out.append(str(name))
+    return out
+
+
+def _level_17_read_flag_column() -> str:
+    sec = _run(17, "SELECT flag FROM secrets WHERE name = 'level_flag' LIMIT 1")
+    if not sec.get("rows"):
+        sec = _run(17, "SELECT flag FROM secrets LIMIT 1")
+    if sec.get("rows") and "flag" in sec["rows"][0]:
+        return str(sec["rows"][0]["flag"] or "")
+    return ""
+
+
+def _level_17_find_hidden_flag() -> str | None:
+    for col in _level_17_extra_cols():
+        if not re.match(r"^[A-Za-z0-9_]+$", col):
+            continue
+        r = _run(
+            17,
+            f"SELECT `{col}` AS v FROM secrets WHERE name = 'level_flag' LIMIT 1",
+        )
+        if not r.get("rows"):
+            continue
+        v = r["rows"][0].get("v")
+        if isinstance(v, str) and v.startswith("CTF{"):
+            return v
+    return None
+
+
+def _level_17_rand_col(existing: set[str]) -> str:
+    for _ in range(80):
+        name = f"{random.choice(_LEVEL_17_COL_WORDS)}_{random.randint(100, 999)}"
+        if name not in existing and name not in {"id", "name", "flag"}:
+            return name
+    return f"col_{random.randint(10000, 99999)}"
+
+
+def _setup_level_17_wide_secrets() -> None:
+    count = _level_17_col_count()
+    existing = set(_level_17_extra_cols()) | {"id", "name", "flag"}
+
+    main_flag = _level_17_read_flag_column()
+    if not main_flag.startswith("CTF{"):
+        hidden = _level_17_find_hidden_flag()
+        if hidden:
+            main_flag = hidden
+        else:
+            main_flag = _get_flag(17)
+            if not str(main_flag).startswith("CTF{"):
+                main_flag = "CTF{level17_fallback}"
+
+    target = 55
+    if count <= 40:
+        while count < target:
+            col = _level_17_rand_col(existing)
+            existing.add(col)
+            _run(
+                17,
+                f"ALTER TABLE secrets ADD COLUMN `{col}` VARCHAR(255) NULL",
+            )
+            count += 1
+
+    extra = _level_17_extra_cols()
+    if not extra:
+        col = _level_17_rand_col(existing)
+        _run(17, f"ALTER TABLE secrets ADD COLUMN `{col}` VARCHAR(255) NULL")
+        extra = _level_17_extra_cols()
+
+    current = _level_17_read_flag_column()
+    if current.startswith("CTF{"):
+        hide_in = random.choice(extra)
+        safe = current.replace("\\", "\\\\").replace("'", "''")
+        _run(
+            17,
+            f"UPDATE secrets SET `{hide_in}` = '{safe}', flag = 'NOT HERE' "
+            f"WHERE name = 'level_flag'",
+        )
+        return
+
+    if not _level_17_find_hidden_flag() and main_flag.startswith("CTF{"):
+        hide_in = random.choice(extra)
+        safe = main_flag.replace("\\", "\\\\").replace("'", "''")
+        _run(
+            17,
+            f"UPDATE secrets SET `{hide_in}` = '{safe}', flag = 'NOT HERE' "
+            f"WHERE name = 'level_flag'",
+        )
+
+
+def _restore_level_17_secrets(flag_val: str) -> None:
+    for col in _level_17_extra_cols():
+        if not re.match(r"^[A-Za-z0-9_]+$", col):
+            continue
+        _run(17, f"ALTER TABLE secrets DROP COLUMN `{col}`")
+    if flag_val.startswith("CTF{"):
+        safe = flag_val.replace("\\", "\\\\").replace("'", "''")
+        _run(
+            17,
+            f"UPDATE secrets SET flag = '{safe}' WHERE name = 'level_flag'",
+        )
+
+
 def handle_17(p: dict) -> dict:
-    """LIMIT 1 is fixed after WHERE — inject before it or use subquery."""
     u = p.get("username", "")
-    lowered = u.lower()
+
+    if any(x in u for x in ("--", "/*", "#")):
+        return {"ok": False, "message": "Rejected.", "raw": ""}
+
+    _setup_level_17_wide_secrets()
 
     q = f"SELECT id, username, role FROM users WHERE username = '{u}' LIMIT 1"
     r = _run(17, q)
@@ -1091,49 +1214,38 @@ def handle_17(p: dict) -> dict:
     if r.get("error"):
         return {
             "ok": False,
-            "message": "Query error",
+            "message": "Query failed.",
             "raw": r.get("raw") or str(r.get("error")),
             "error": r.get("error"),
         }
 
     rows = r.get("rows") or []
+    raw = r.get("raw") or ""
     blob = _rows_blob(rows)
 
-    # Win: extracted flag appears, or single admin row via injection before LIMIT
     if "CTF{" in blob:
-        flag_val = next((str(v) for row in rows for v in row.values() if str(v).startswith("CTF{")), _get_flag(17))
+        flag_val = next(
+            (
+                str(v)
+                for row in rows
+                for v in (row.values() if isinstance(row, dict) else row)
+                if v is not None and str(v).startswith("CTF{")
+            ),
+            None,
+        )
+        if not flag_val:
+            flag_val = _level_17_find_hidden_flag() or _get_flag(17)
+        _restore_level_17_secrets(flag_val)
         return {
             "ok": True,
-            "message": f"Bypassed LIMIT. Flag: {flag_val}",
-            "raw": r.get("raw") or "",
-        }
-
-    if rows and (rows[0].get("username") == "admin" or rows[0].get("role") == "admin"):
-        # Only count as win if injection was used (not plain "admin")
-        if u.strip().lower() == "admin":
-            return {
-                "ok": False,
-                "message": "Admin row visible, but you must inject past LIMIT (not plain username).",
-                "raw": r.get("raw") or "",
-            }
-        flag_val = _get_flag(17)
-        return {
-            "ok": True,
-            "message": f"LIMIT bypassed — admin reached. Flag: {flag_val}",
-            "raw": r.get("raw") or "",
-        }
-
-    if rows:
-        return {
-            "ok": False,
-            "message": "One row returned (LIMIT 1). Inject before LIMIT or use a subquery/UNION trick.",
-            "raw": r.get("raw") or "",
+            "message": f"OK. Flag: {flag_val}",
+            "raw": "",
         }
 
     return {
         "ok": False,
-        "message": "No rows. Remember: LIMIT 1 sits after the WHERE clause.",
-        "raw": r.get("raw") or "",
+        "message": "OK." if rows else "No rows.",
+        "raw": raw,
     }
 
 

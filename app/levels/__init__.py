@@ -58,7 +58,7 @@ LEVEL_META = {
          "union/select/or/and/comments are blocked. Bypass so the query matches multiple user rows."),
     16: ("Typed UNION", "Extract the flag with a type-aligned UNION.",
          "Different materials join only when shaped alike.",
-         "UNION must match three columns (int, string, string). Use NULL/CAST if needed; avoid dumping the whole table."),
+         "UNION must match three columns."),
     17: ("UNION under LIMIT", "Inject past a fixed LIMIT 1.",
          "The window shows only the first traveler.",
          "LIMIT 1 is fixed after WHERE. Inject before it, or use subquery/UNION tricks to still extract the flag."),

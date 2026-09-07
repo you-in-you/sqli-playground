@@ -8,7 +8,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@300;400;500;600;700;800&display=swap" rel="stylesheet" />
-  <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}?v=9" />
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}?v=11" />
 </head>
 <body>
   <div id="dashboard" class="page active">
@@ -79,7 +79,7 @@
             <div class="level-header">
               <div class="level-title-row">
                 <h1 id="level-title" class="glitch-title" data-text="—">—</h1>
-                <span id="level-difficulty" class="difficulty-tag">—</span>
+                <span id="level-difficulty" class="difficulty-tag"><span class="diff-text">—</span><span class="diff-sticker" aria-hidden="true">:)</span></span>
               </div>
               <p id="level-desc" class="level-desc one-shot"></p>
             </div>
@@ -208,6 +208,6 @@
   </div>
 
 <script src="https://cdn.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.min.js"></script>
-  <script src="{{ url_for('static', filename='js/app.js') }}?v=9"></script>
+  <script src="{{ url_for('static', filename='js/app.js') }}?v=11"></script>
 </body>
 </html>

@@ -61,6 +61,25 @@ function getDiffLabel(d) {
   return (d || "easy").toUpperCase();
 }
 
+const DIFF_STICKERS = {
+  easy: ":)",
+  medium: ":|",
+  hard: ":(",
+  expert: ">:)",
+  insane: "X_X",
+};
+
+function setDifficultyTag(diff) {
+  const el = $("#level-difficulty");
+  if (!el) return;
+  const d = (diff || "easy").toLowerCase();
+  const label = getDiffLabel(d);
+  const sticker = DIFF_STICKERS[d] || ":)";
+  el.innerHTML =
+    '<span class="diff-text">' + label + '</span>' +
+    '<span class="diff-sticker" aria-hidden="true">' + sticker + '</span>';
+}
+
 function escapeHtml(s) {
   return String(s)
     .replace(/&/g, "&amp;")
@@ -72,19 +91,27 @@ function escapeHtml(s) {
 function loadProgress() {
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
-    if (!raw) return { solved: [], current: 1 };
+    if (!raw) return { solved: [], current: 1, attempts: {}, history: {} };
     const data = JSON.parse(raw);
     return {
       solved: Array.isArray(data.solved) ? data.solved.map(Number) : [],
       current: Number(data.current) || 1,
+      attempts: data.attempts && typeof data.attempts === "object" ? data.attempts : {},
+      history: data.history && typeof data.history === "object" ? data.history : {},
     };
   } catch {
-    return { solved: [], current: 1 };
+    return { solved: [], current: 1, attempts: {}, history: {} };
   }
 }
 
 function saveProgress(p) {
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(p));
+  const data = p || progress;
+  localStorage.setItem(STORAGE_KEY, JSON.stringify({
+    solved: data.solved || [],
+    current: data.current || 1,
+    attempts: data.attempts || {},
+    history: data.history || {},
+  }));
 }
 
 let progress = loadProgress();
@@ -139,7 +166,7 @@ function renderLevels() {
       statusMsg = "Access Denied";
     } else if (isCurrent) {
       statusCode = "202";
-      statusMsg = "Found";
+      statusMsg = "Accepted";
     }
 
     if (isLocked) {
@@ -176,12 +203,67 @@ function renderSolved() {
     .map((id) => {
       const meta = getMeta(id);
       const flag = id === 1 ? DEMO_FLAG : `CTF{demo_l${String(id).padStart(2, "0")}}`;
-      return `<div class="solved-item" data-level="${id}">
-        <span class="solved-level">Level ${String(id).padStart(2, "0")} — ${escapeHtml(meta.name)}</span>
+      const n = Number((progress.attempts || {})[String(id)]) || 0;
+      const attemptsLabel = n === 1 ? "1 payload tested" : `${n} payloads tested`;
+      return `<div class="solved-item" data-level="${id}" data-diff="${meta.diff || "easy"}">
+        <div class="solved-left">
+          <span class="solved-level">Level ${String(id).padStart(2, "0")} — ${escapeHtml(meta.name)}</span>
+          <span class="solved-attempts">${attemptsLabel}</span>
+        </div>
         <span class="solved-flag">${escapeHtml(flag)}</span>
       </div>`;
     })
     .join("");
+  el.querySelectorAll(".solved-item").forEach((item) => {
+    item.addEventListener("click", () => openHistory(Number(item.dataset.level)));
+  });
+}
+
+function openHistory(levelId) {
+  const overlay = document.getElementById("history-overlay");
+  const title = document.getElementById("history-title");
+  const body = document.getElementById("history-body");
+  if (!overlay || !title || !body) return;
+
+  const meta = getMeta(levelId);
+  title.textContent = (meta.name || ("Level " + levelId)) + " — Attack History";
+  body.innerHTML = '<p class="empty-state">Loading...</p>';
+  overlay.classList.remove("hidden");
+
+  const list = (progress.history && progress.history[String(levelId)]) || [];
+  if (!list.length) {
+    body.innerHTML = '<p class="empty-state">No attempts recorded for this level.</p>';
+    return;
+  }
+  const total = list.length;
+  let html = '<p class="history-meta">' + total + " attempt" + (total === 1 ? "" : "s") + " recorded</p>";
+  list.forEach(function (h, i) {
+    const user = escapeHtml(h.username_payload || "");
+    const pass = escapeHtml(h.password_payload || "");
+    const resp = escapeHtml(h.response_raw || h.response_message || "");
+    const time = h.created_at ? escapeHtml(String(h.created_at)) : "";
+    const win = h.is_winning === 1 || h.is_winning === true || h.is_winning === "1";
+    const ok = h.ok === 1 || h.ok === true || h.ok === "1";
+    let badges = "";
+    if (win) badges += '<span class="hist-win-tag">Winning</span>';
+    badges += ok ? '<span class="hist-ok-tag">OK</span>' : '<span class="hist-fail-tag">Fail</span>';
+    if (time) badges += '<span class="hist-time">' + time + "</span>";
+    html +=
+      '<div class="history-item' + (win ? " winning" : "") + '">' +
+        '<div class="hist-head">' +
+          '<span class="hist-idx">Attempt ' + (i + 1) + " / " + total + "</span>" +
+          '<div class="hist-badges">' + badges + "</div>" +
+        "</div>" +
+        '<div class="hist-label">Payload</div>' +
+        '<div class="hist-payload">' +
+          "<div><span class=\"hist-k\">username</span> <span class=\"hist-v\">" + (user || "(empty)") + "</span></div>" +
+          "<div><span class=\"hist-k\">password</span> <span class=\"hist-v\">" + (pass || "(empty)") + "</span></div>" +
+        "</div>" +
+        '<div class="hist-label">Response</div>' +
+        '<div class="hist-response">' + (resp || "(none)") + "</div>" +
+      "</div>";
+  });
+  body.innerHTML = html;
 }
 
 function loadDashboard() {
@@ -206,7 +288,10 @@ function openLevel(id) {
   const titleEl = $("#level-title");
   titleEl.textContent = meta.name;
   titleEl.setAttribute("data-text", meta.name || "—");
-  $("#level-difficulty").textContent = getDiffLabel(meta.diff);
+  setDifficultyTag(meta.diff);
+    updateBugLink(id, meta.name, meta.diff);
+  const _fr = document.querySelector(".flag-row");
+  if (_fr) _fr.classList.remove("flag-open");
   $("#level-desc").textContent = meta.desc || "One shot. Make it count.";
   $("#hint-indirect-text").textContent = meta.hint_i || "";
   $("#hint-technical-text").textContent = meta.hint_t || "";
@@ -265,7 +350,22 @@ $("#btn-send-payload").addEventListener("click", () => {
   const username = $("#payload-input").value;
   const password = $("#payload-pass").value;
   lastPayload = { username, password };
+  if (!progress.attempts) progress.attempts = {};
+  progress.attempts[String(currentLevel)] = (Number(progress.attempts[String(currentLevel)]) || 0) + 1;
   const res = mockAttack(username, password);
+  if (!progress.history) progress.history = {};
+  const key = String(currentLevel);
+  if (!Array.isArray(progress.history[key])) progress.history[key] = [];
+  progress.history[key].push({
+    username_payload: username,
+    password_payload: password,
+    response_message: res.message || "",
+    response_raw: res.raw || "",
+    ok: res.ok ? 1 : 0,
+    is_winning: 0,
+    created_at: new Date().toISOString().replace("T", " ").slice(0, 19),
+  });
+  saveProgress();
   const area = $("#response-area");
   const content = $("#response-content");
   area.classList.remove("hidden");
@@ -273,10 +373,6 @@ $("#btn-send-payload").addEventListener("click", () => {
   void area.offsetWidth;
   area.classList.add("booting", "scan");
   const lines = [];
-  lines.push("→ POST /login");
-  lines.push("username: " + (username || "(empty)"));
-  lines.push("password: " + (password || "(empty)"));
-  lines.push("—");
   if (res.message) lines.push(res.message);
   if (res.raw) lines.push(res.raw);
   content.innerHTML = lines.map((t) => `<div class="resp-line">${escapeHtml(t)}</div>`).join("");
@@ -303,6 +399,14 @@ $("#btn-submit-flag").addEventListener("click", () => {
   if (flag === DEMO_FLAG) {
     if (!progress.solved.includes(1)) progress.solved.push(1);
     progress.current = Math.max(progress.current, 2);
+    // mark last attempt as winning if any
+    if (!progress.history) progress.history = {};
+    const arr = progress.history["1"] || [];
+    if (arr.length) {
+      arr.forEach((h) => { h.is_winning = 0; });
+      arr[arr.length - 1].is_winning = 1;
+      arr[arr.length - 1].ok = 1;
+    }
     saveProgress(progress);
     msg.className = "flag-message success";
     msg.textContent = "Correct!";
@@ -356,7 +460,51 @@ $$(".tab").forEach((tab) => {
 
 /* Share */
 function shareGhLink() {
-  return `<a class="scard-gh" href="${SHARE_REPO}" target="_blank" rel="noopener noreferrer"><svg width="12" height="12" viewBox="0 0 16 16" aria-hidden="true"><path fill="currentColor" d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/></svg> ${SHARE_REPO_HOST}</a>`;
+  const icon = `<svg width="12" height="12" viewBox="0 0 16 16" aria-hidden="true"><path fill="currentColor" d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/></svg>`;
+  const label =
+    `<span class="scard-gh-text">` +
+    `<span class="gh-host">github.com/</span>` +
+    `<span class="gh-user">you-in-you</span>` +
+    `<span class="gh-sep">/</span>` +
+    `<span class="gh-repo">sqli-playground</span>` +
+    `</span>`;
+  return `<a class="scard-gh" href="${SHARE_REPO}" target="_blank" rel="noopener noreferrer">${icon}${label}</a>`;
+}
+
+function buildBugIssueUrl(levelId, levelName, diff) {
+  const id = String(levelId || 1).padStart(2, "0");
+  const name = levelName || "—";
+  const d = (diff || "easy").toUpperCase();
+  const title = `Bug: Level ${id} — ${name}`;
+  const body = [
+    `**Level:** ${id} (${name})`,
+    `**Difficulty:** ${d}`,
+    ``,
+    `### Description`,
+    `<!-- What went wrong? -->`,
+    ``,
+    `### Steps to reproduce`,
+    `1. `,
+    `2. `,
+    ``,
+    `### Expected`,
+    ``,
+    `### Actual`,
+    ``,
+  ].join("\n");
+  const base = "https://github.com/you-in-you/sqli-playground/issues/new";
+  return (
+    base +
+    "?title=" + encodeURIComponent(title) +
+    "&body=" + encodeURIComponent(body)
+  );
+}
+
+function updateBugLink(levelId, levelName, diff) {
+  const href = buildBugIssueUrl(levelId, levelName, diff);
+  document.querySelectorAll("a.btn-bug").forEach((a) => {
+    a.href = href;
+  });
 }
 
 function formatSharePayloadHtml(raw) {
@@ -776,3 +924,35 @@ loadDashboard();
     });
   }
 })();
+
+/* Flag input: collapsed until SUBMIT hover, then stays open */
+(function () {
+  const row = document.querySelector(".flag-row");
+  const btn = document.getElementById("btn-submit-flag");
+  const input = document.getElementById("flag-input");
+  if (!row || !btn) return;
+  function openFlag() {
+    row.classList.add("flag-open");
+  }
+  btn.addEventListener("mouseenter", openFlag);
+  btn.addEventListener("focus", openFlag);
+  if (input) {
+    input.addEventListener("focus", openFlag);
+  }
+})();
+
+(function () {
+  const ov = document.getElementById("history-overlay");
+  const btn = document.getElementById("btn-close-history");
+  function closeHistory() {
+    if (!ov) return;
+    ov.classList.add("hidden");
+  }
+  if (btn) btn.addEventListener("click", closeHistory);
+  if (ov) {
+    ov.addEventListener("click", (e) => {
+      if (e.target === ov) closeHistory();
+    });
+  }
+})();
+

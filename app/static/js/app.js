@@ -138,13 +138,20 @@ async function loadSolved() {
     return;
   }
   el.innerHTML = data.solved
-    .map(
-      (s) => `
-    <div class="solved-item" data-level="${s.id}">
-      <span class="solved-level">Level ${String(s.id).padStart(2, "0")} — ${s.name}</span>
-      <span class="solved-flag">${s.flag}</span>
-    </div>`
-    )
+    .map((s) => {
+      const diff = s.diff || "easy";
+      const n = Number(s.attempts) || 0;
+      const attemptsLabel =
+        n === 1 ? "1 payload tested" : `${n} payloads tested`;
+      return `
+    <div class="solved-item" data-level="${s.id}" data-diff="${diff}">
+      <div class="solved-left">
+        <span class="solved-level">Level ${String(s.id).padStart(2, "0")} — ${escapeHtml(s.name)}</span>
+        <span class="solved-attempts">${attemptsLabel}</span>
+      </div>
+      <span class="solved-flag">${escapeHtml(s.flag)}</span>
+    </div>`;
+    })
     .join("");
 
   el.querySelectorAll(".solved-item").forEach((item) => {
@@ -153,37 +160,63 @@ async function loadSolved() {
 }
 
 async function openHistory(levelId) {
-  const title = $("#history-title");
-  const body = $("#history-body");
-  title.textContent = `Level ${String(levelId).padStart(2, "0")} — Attack History`;
-  body.innerHTML = `<p class="empty-state">Loading...</p>`;
-  $("#history-overlay").classList.remove("hidden");
+  const overlay = document.getElementById("history-overlay");
+  const title = document.getElementById("history-title");
+  const body = document.getElementById("history-body");
+  if (!overlay || !title || !body) {
+    console.error("history modal DOM missing");
+    return;
+  }
+
+  title.textContent = "Level " + String(levelId).padStart(2, "0") + " — Attack History";
+  body.innerHTML = '<p class="empty-state">Loading...</p>';
+  overlay.classList.remove("hidden");
 
   try {
-    const data = await api(`/api/level/${levelId}/history`);
-    title.textContent = `${data.name} — Attack History`;
-    if (!data.history.length) {
-      body.innerHTML = `<p class="empty-state">No attempts recorded for this level.</p>`;
+    const data = await api("/api/level/" + levelId + "/history");
+    title.textContent = (data.name || ("Level " + levelId)) + " — Attack History";
+    const list = Array.isArray(data.history) ? data.history : [];
+    if (!list.length) {
+      body.innerHTML = '<p class="empty-state">No attempts recorded for this level.</p>';
       return;
     }
-    body.innerHTML = data.history
-      .map((h) => {
-        const win = h.is_winning ? `<div class="hist-win-tag">Winning payload</div>` : "";
-        const user = escapeHtml(h.username_payload || "");
-        const pass = escapeHtml(h.password_payload || "");
-        const resp = escapeHtml(h.response_raw || h.response_message || "");
-        return `
-          <div class="history-item${h.is_winning ? " winning" : ""}">
-            ${win}
-            <div class="hist-label">Payload</div>
-            <div class="hist-payload">user: ${user || "(empty)"}<br>pass: ${pass || "(empty)"}</div>
-            <div class="hist-label">Response</div>
-            <div class="hist-response">${resp || "(none)"}</div>
-          </div>`;
-      })
-      .join("");
+    const total = list.length;
+    let html = '<p class="history-meta">' + total + " attempt" + (total === 1 ? "" : "s") + " recorded</p>";
+    list.forEach(function (h, i) {
+      const user = escapeHtml(h.username_payload || "");
+      const pass = escapeHtml(h.password_payload || "");
+      const resp = escapeHtml(h.response_raw || h.response_message || "");
+      const time = h.created_at ? escapeHtml(String(h.created_at)) : "";
+      const win = h.is_winning === 1 || h.is_winning === true || h.is_winning === "1";
+      const ok = h.ok === 1 || h.ok === true || h.ok === "1";
+      let badges = "";
+      if (win) badges += '<span class="hist-win-tag">Winning</span>';
+      badges += ok
+        ? '<span class="hist-ok-tag">OK</span>'
+        : '<span class="hist-fail-tag">Fail</span>';
+      if (time) badges += '<span class="hist-time">' + time + "</span>";
+      html +=
+        '<div class="history-item' + (win ? " winning" : "") + '">' +
+          '<div class="hist-head">' +
+            '<span class="hist-idx">Attempt ' + (i + 1) + " / " + total + "</span>" +
+            '<div class="hist-badges">' + badges + "</div>" +
+          "</div>" +
+          '<div class="hist-label">Payload</div>' +
+          '<div class="hist-payload">' +
+            "<div><span class=\"hist-k\">username</span> <span class=\"hist-v\">" + (user || "(empty)") + "</span></div>" +
+            "<div><span class=\"hist-k\">password</span> <span class=\"hist-v\">" + (pass || "(empty)") + "</span></div>" +
+          "</div>" +
+          '<div class="hist-label">Response</div>' +
+          '<div class="hist-response">' + (resp || "(none)") + "</div>" +
+        "</div>";
+    });
+    body.innerHTML = html;
   } catch (e) {
-    body.innerHTML = `<p class="empty-state">${escapeHtml(e.message || "Failed")}</p>`;
+    console.error("openHistory failed", e);
+    body.innerHTML =
+      '<p class="empty-state">' +
+      escapeHtml(e.message || "Failed to load history") +
+      "</p>";
   }
 }
 
@@ -200,6 +233,7 @@ async function openLevel(id) {
     titleEl.setAttribute("data-text", meta.name || "—");
     titleEl.dataset.glitchBound = "0";
     setDifficultyTag(meta.diff);
+    updateBugLink(id, meta.name, meta.diff);
     const _fr = document.querySelector(".flag-row");
     if (_fr) _fr.classList.remove("flag-open");
     $("#level-desc").textContent = meta.desc || "";
@@ -336,13 +370,21 @@ $("#btn-back-dashboard").addEventListener("click", () => {
 
 $("#btn-back").addEventListener("click", () => showDashboard());
 
-$("#btn-close-history").addEventListener("click", () => {
-  $("#history-overlay").classList.add("hidden");
-});
-
-$("#history-overlay").addEventListener("click", (e) => {
-  if (e.target.id === "history-overlay") $("#history-overlay").classList.add("hidden");
-});
+(function () {
+  const ov = document.getElementById("history-overlay");
+  const btn = document.getElementById("btn-close-history");
+  function closeHistory() {
+    if (!ov) return;
+    ov.classList.add("hidden");
+    ov.style.cssText = "";
+  }
+  if (btn) btn.addEventListener("click", closeHistory);
+  if (ov) {
+    ov.addEventListener("click", (e) => {
+      if (e.target === ov) closeHistory();
+    });
+  }
+})();
 
 function showDashboard() {
   $("#level-page").classList.remove("active");
@@ -382,13 +424,49 @@ if (solvedToggle) {
 function shareGhLink() {
   const icon = `<svg width="12" height="12" viewBox="0 0 16 16" aria-hidden="true"><path fill="currentColor" d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/></svg>`;
   const label =
+    `<span class="scard-gh-text">` +
     `<span class="gh-host">github.com/</span>` +
     `<span class="gh-user">you-in-you</span>` +
     `<span class="gh-sep">/</span>` +
-    `<span class="c-sql">sql</span><span class="c-i">i</span>` +
-    `<span class="gh-sep">-</span>` +
-    `<span class="c-play">play</span><span class="c-ground">ground</span>`;
-  return `<a class="scard-gh" href="${SHARE_REPO}" target="_blank" rel="noopener noreferrer">${icon} ${label}</a>`;
+    `<span class="gh-repo">sqli-playground</span>` +
+    `</span>`;
+  return `<a class="scard-gh" href="${SHARE_REPO}" target="_blank" rel="noopener noreferrer">${icon}${label}</a>`;
+}
+
+function buildBugIssueUrl(levelId, levelName, diff) {
+  const id = String(levelId || 1).padStart(2, "0");
+  const name = levelName || "—";
+  const d = (diff || "easy").toUpperCase();
+  const title = `Bug: Level ${id} — ${name}`;
+  const body = [
+    `**Level:** ${id} (${name})`,
+    `**Difficulty:** ${d}`,
+    ``,
+    `### Description`,
+    `<!-- What went wrong? -->`,
+    ``,
+    `### Steps to reproduce`,
+    `1. `,
+    `2. `,
+    ``,
+    `### Expected`,
+    ``,
+    `### Actual`,
+    ``,
+  ].join("\n");
+  const base = "https://github.com/you-in-you/sqli-playground/issues/new";
+  return (
+    base +
+    "?title=" + encodeURIComponent(title) +
+    "&body=" + encodeURIComponent(body)
+  );
+}
+
+function updateBugLink(levelId, levelName, diff) {
+  const href = buildBugIssueUrl(levelId, levelName, diff);
+  document.querySelectorAll("a.btn-bug").forEach((a) => {
+    a.href = href;
+  });
 }
 
 function formatSharePayloadHtml(raw) {

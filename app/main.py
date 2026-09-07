@@ -14,6 +14,7 @@ from app.db import (
     get_flag_from_db,
     log_attack,
     get_level_history,
+    count_level_attempts,
 )
 from app.levels import get_meta, handle_level, LEVEL_NAMES
 
@@ -215,10 +216,13 @@ def api_solved():
     items = []
     for lid in progress["solved"]:
         flag = get_flag_from_db(lid) or ""
+        meta = get_meta(lid)
         items.append({
             "id": lid,
             "name": LEVEL_NAMES.get(lid, f"Level {lid}"),
             "flag": flag,
+            "diff": meta.get("diff", "easy"),
+            "attempts": count_level_attempts(lid),
         })
     return jsonify({"solved": items})
 

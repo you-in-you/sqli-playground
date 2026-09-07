@@ -126,6 +126,23 @@ def log_attack(
         conn.close()
 
 
+
+def count_level_attempts(level_id: int) -> int:
+    conn = get_conn("sqli_ctf_meta")
+    try:
+        with conn.cursor() as cur:
+            cur.execute(
+                "SELECT COUNT(*) AS c FROM attack_history WHERE level_id = %s",
+                (level_id,),
+            )
+            row = cur.fetchone()
+            return int(row["c"] if row else 0)
+    except Exception:
+        return 0
+    finally:
+        conn.close()
+
+
 def get_level_history(level_id: int) -> list[dict]:
     conn = get_conn("sqli_ctf_meta")
     try:
@@ -140,12 +157,19 @@ def get_level_history(level_id: int) -> list[dict]:
                 """,
                 (level_id,),
             )
-            rows = cur.fetchall()
-            # serialize datetime
+            rows = cur.fetchall() or []
+            out = []
             for r in rows:
-                if r.get("created_at") is not None:
-                    r["created_at"] = str(r["created_at"])
-            return rows
+                item = dict(r)
+                if item.get("created_at") is not None:
+                    item["created_at"] = str(item["created_at"])
+                # normalize flags for JSON / frontend
+                item["ok"] = 1 if item.get("ok") else 0
+                item["is_winning"] = 1 if item.get("is_winning") else 0
+                out.append(item)
+            return out
+    except Exception:
+        return []
     finally:
         conn.close()
 

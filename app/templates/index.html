@@ -8,12 +8,12 @@
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@300;400;500;600;700;800&display=swap" rel="stylesheet" />
-  <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}" />
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}?v=9" />
 </head>
 <body>
   <div id="dashboard" class="page active">
     <div class="bg-circuit" aria-hidden="true"></div>
-    <svg class="circuit-glow" id="circuit-glow-dash" viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true"></svg>
+    <svg class="circuit-traces" id="circuit-dash" viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true"></svg>
     <header class="header">
       <div class="logo">
         <span class="logo-icon">⌘</span>
@@ -25,8 +25,8 @@
     </header>
     <main class="main">
       <section class="hero">
-        <h1>SQL Injection Lab</h1>
-        <p>60 levels • Progressive • No mercy • Local only</p>
+        <h1 class="hero-title glitch-title" data-text="SQL Injection Lab" id="hero-title">SQL Injection Lab</h1>
+        <p class="hero-sub">60 levels • Progressive • No mercy • Local only</p>
       </section>
       <section class="levels-section">
         <div class="section-header">
@@ -56,71 +56,75 @@
 
   <div id="level-page" class="page">
     <div class="bg-circuit" aria-hidden="true"></div>
-    <svg class="circuit-glow" id="circuit-glow-level" viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true"></svg>
+    <svg class="circuit-traces" id="circuit-level" viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true"></svg>
     <header class="header">
       <div class="logo">
         <button id="btn-back" class="btn-back" title="Back">←</button>
         <span class="logo-text">SQLi Playground</span>
       </div>
       <div class="header-right header-right-level">
-        <a id="btn-github" class="btn-github" href="https://github.com/you-in-you/sqli-playground" target="_blank" rel="noopener noreferrer" title="GitHub repository">
+        <span id="level-badge" class="level-badge">LEVEL 01</span>
+        <a id="btn-github" class="btn-github" href="https://github.com/you-in-you/sqli-playground" target="_blank" rel="noopener noreferrer" title="GitHub · you-in-you">
           <svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true">
             <path fill="currentColor" d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/>
           </svg>
+          <span class="gh-label">you-in-you</span>
         </a>
-        <span id="level-badge" class="level-badge">LEVEL 01</span>
       </div>
     </header>
     <main class="main level-main">
-      <div class="level-container">
-        <div class="level-header">
-          <div class="level-title-row">
-            <h1 id="level-title">—</h1>
-            <span id="level-difficulty" class="difficulty-tag">—</span>
-          </div>
-          <p id="level-desc" class="level-desc"></p>
-        </div>
-
-        <div class="attack-panel">
-          <div class="attack-meta">
-            <span class="attack-method">POST</span>
-            <span class="attack-path" id="attack-path">/login</span>
-          </div>
-          <div class="attack-fields">
-            <div class="field">
-              <label class="field-label">username</label>
-              <input type="text" id="payload-input" class="field-input" placeholder="admin' OR '1'='1" autocomplete="off" spellcheck="false" />
+      <div class="level-container zen-level">
+        <div class="zen-wrap">
+          <div class="zen-panel">
+            <div class="level-header">
+              <div class="level-title-row">
+                <h1 id="level-title" class="glitch-title" data-text="—">—</h1>
+                <span id="level-difficulty" class="difficulty-tag">—</span>
+              </div>
+              <p id="level-desc" class="level-desc one-shot"></p>
             </div>
-            <div class="field">
-              <label class="field-label">password</label>
-              <input type="text" id="payload-pass" class="field-input" placeholder="password" autocomplete="off" spellcheck="false" />
+
+            <div class="hint-swap" id="hint-swap" title="Hold / hover for technical">
+              <div class="hint-body" id="hint-body">
+                <div class="epic" id="hint-indirect-text"></div>
+                <div class="tech" id="hint-technical-text"></div>
+              </div>
+              <div class="hint-hint" id="hint-hint-label">hold / hover → technical</div>
+            </div>
+            <div id="hint-indirect" class="hidden" aria-hidden="true"></div>
+            <div id="hint-technical" class="hidden" aria-hidden="true"></div>
+
+            <div class="attack-panel">
+              <div class="attack-meta">
+                <span class="attack-method">POST</span>
+                <span class="attack-path" id="attack-path">/login</span>
+              </div>
+              <div class="attack-fields">
+                <div class="field">
+                  <label class="field-label">username</label>
+                  <input type="text" id="payload-input" class="field-input" placeholder="admin' OR '1'='1" autocomplete="off" spellcheck="false" />
+                </div>
+                <div class="field">
+                  <label class="field-label">password</label>
+                  <input type="text" id="payload-pass" class="field-input" placeholder="password" autocomplete="off" spellcheck="false" />
+                </div>
+              </div>
+              <button id="btn-send-payload" class="btn-attack" type="button">EXECUTE</button>
+            </div>
+
+            <div id="response-area" class="response-panel hidden">
+              <div class="response-header"><span class="response-status">RESPONSE</span></div>
+              <div id="response-content" class="response-body"></div>
+            </div>
+
+            <div class="flag-panel">
+              <div class="flag-row">
+                <input type="text" id="flag-input" class="flag-input" placeholder="CTF{...}" autocomplete="off" spellcheck="false" />
+                <button id="btn-submit-flag" class="btn-submit" type="button">SUBMIT</button>
+              </div>
+              <div id="flag-message" class="flag-message hidden"></div>
             </div>
           </div>
-          <button id="btn-send-payload" class="btn-attack">EXECUTE</button>
-        </div>
-
-        <div id="response-area" class="response-panel hidden">
-          <div class="response-header"><span class="response-status">RESPONSE</span></div>
-          <pre id="response-content" class="response-body"></pre>
-        </div>
-
-        <div class="hint-panel" id="hint-indirect">
-          <div class="hint-row">
-            <span class="hint-mark">?</span>
-            <span id="hint-indirect-text" class="hint-text"></span>
-            <span class="hint-action">[ technical ]</span>
-          </div>
-          <div id="hint-technical" class="hint-tech hidden">
-            <span id="hint-technical-text"></span>
-          </div>
-        </div>
-
-        <div class="flag-panel">
-          <div class="flag-row">
-            <input type="text" id="flag-input" class="flag-input" placeholder="CTF{...}" autocomplete="off" spellcheck="false" />
-            <button id="btn-submit-flag" class="btn-submit">SUBMIT</button>
-          </div>
-          <div id="flag-message" class="flag-message hidden"></div>
         </div>
       </div>
     </main>
@@ -204,6 +208,6 @@
   </div>
 
 <script src="https://cdn.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.min.js"></script>
-  <script src="{{ url_for('static', filename='js/app.js') }}"></script>
+  <script src="{{ url_for('static', filename='js/app.js') }}?v=9"></script>
 </body>
 </html>

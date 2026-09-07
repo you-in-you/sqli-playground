@@ -176,46 +176,65 @@ async function openLevel(id) {
     document.body.dataset.diff = meta.diff || "easy";
 
     $("#level-badge").textContent = `LEVEL ${String(id).padStart(2, "0")}`;
-    $("#level-title").textContent = meta.name;
+    const titleEl = $("#level-title");
+    titleEl.textContent = meta.name;
+    titleEl.setAttribute("data-text", meta.name || "—");
+    titleEl.dataset.glitchBound = "0";
     $("#level-difficulty").textContent = getDiffLabel(meta.diff);
-    $("#level-desc").textContent = meta.desc;
-    $("#hint-indirect-text").textContent = meta.hint_i;
-    $("#hint-technical-text").textContent = meta.hint_t;
+    $("#level-desc").textContent = meta.desc || "";
+    $("#hint-indirect-text").textContent = meta.hint_i || "";
+    $("#hint-technical-text").textContent = meta.hint_t || "";
     shareLevelMeta = {
       id,
       name: meta.name || "",
       diff: meta.diff || "easy",
       epic: meta.hint_i || "",
     };
-    $("#hint-technical").classList.add("hidden");
+    const swap = $("#hint-swap");
+    if (swap) swap.classList.remove("open");
 
     $("#payload-input").value = "";
     $("#payload-pass").value = "";
     $("#response-area").classList.add("hidden");
     $("#response-content").textContent = "";
+    $("#response-content").innerHTML = "";
     $("#flag-input").value = "";
     $("#flag-message").className = "flag-message hidden";
 
     $("#dashboard").classList.remove("active");
     $("#level-page").classList.add("active");
     window.scrollTo(0, 0);
+    if (typeof window.rerollLevelCircuit === "function") {
+      window.rerollLevelCircuit();
+    }
+    if (typeof window.setupZenLevelUI === "function") {
+      requestAnimationFrame(() => window.setupZenLevelUI());
+    }
   } catch (e) {
     if (e.status === 403) alert("403 Access Denied");
     else alert(e.message || "Failed");
   }
 }
 
-$("#hint-indirect").addEventListener("click", () => {
-  $("#hint-technical").classList.toggle("hidden");
-});
+/* hint-swap handled by setupZenLevelUI */
 
 $("#btn-send-payload").addEventListener("click", async () => {
   const username = $("#payload-input").value;
   const password = $("#payload-pass").value;
   const area = $("#response-area");
   const content = $("#response-content");
+  const btn = $("#btn-send-payload");
   area.classList.remove("hidden");
-  content.textContent = "Executing...";
+  area.classList.remove("scan", "booting");
+  void area.offsetWidth;
+  area.classList.add("booting", "scan");
+  content.innerHTML = '<div class="resp-line">Executing...</div>';
+  if (btn) {
+    btn.classList.remove("fired");
+    void btn.offsetWidth;
+    btn.classList.add("fired");
+    setTimeout(() => btn.classList.remove("fired"), 500);
+  }
 
   try {
     lastPayload = { username, password };
@@ -224,17 +243,28 @@ $("#btn-send-payload").addEventListener("click", async () => {
       body: JSON.stringify({ username, password }),
     });
     if (res.history_id) lastHistoryId = res.history_id;
-    let out = "";
-    if (res.message) out += res.message + "\n\n";
-    if (res.raw) out += res.raw;
-    if (res.error && !res.raw) out += "Error: " + res.error;
-    content.textContent = out || JSON.stringify(res, null, 2);
+    const lines = [];
+    if (res.message) lines.push(String(res.message));
+    if (res.raw) lines.push(String(res.raw));
+    if (res.error && !res.raw) lines.push("Error: " + res.error);
+    if (!lines.length) lines.push(JSON.stringify(res, null, 2));
+    content.innerHTML = lines
+      .map((t) => `<div class="resp-line">${escapeHtml(String(t))}</div>`)
+      .join("");
   } catch (e) {
-    content.textContent = e.message || "Request failed";
+    content.innerHTML = `<div class="resp-line">${escapeHtml(e.message || "Request failed")}</div>`;
   }
+  setTimeout(() => area.classList.remove("scan", "booting"), 800);
 });
 
 $("#btn-submit-flag").addEventListener("click", async () => {
+  const sb = $("#btn-submit-flag");
+  if (sb) {
+    sb.classList.remove("fired");
+    void sb.offsetWidth;
+    sb.classList.add("fired");
+    setTimeout(() => sb.classList.remove("fired"), 500);
+  }
   const flag = $("#flag-input").value.trim();
   const msg = $("#flag-message");
   msg.classList.remove("hidden");
@@ -276,6 +306,9 @@ $("#btn-next-level").addEventListener("click", async () => {
 });
 
 $("#btn-back-dashboard").addEventListener("click", () => {
+  const b = $("#btn-back-dashboard");
+  if (b) { b.classList.remove("fired"); void b.offsetWidth; b.classList.add("fired"); }
+
   $("#success-overlay").classList.add("hidden");
   showDashboard();
 });
@@ -606,113 +639,189 @@ if (_updateOverlay) {
 }
 
 
-/* ── Circuit hover glow + live shell (UI only) ───────────────── */
+
+/* ── Thin circuit blink + zen level UI + live shell ───────────── */
 (function () {
   const DEFAULT_QUERY =
     "SELECT id, username, role FROM users WHERE username = 'admin'-- -";
 
   const SEGS = [
-    [19, 0, 19, 29, "#ff0055"],
-    [19, 29, 44, 29, "#ff0055"],
-    [44, 17, 44, 40, "#d500f9"],
-    [44, 40, 69, 40, "#d500f9"],
-    [69, 0, 69, 40, "#ff0055"],
-    [69, 40, 69, 68, "#ff0055"],
-    [54, 68, 69, 68, "#d500f9"],
-    [54, 68, 54, 100, "#d500f9"],
-    [30, 72, 54, 72, "#ff0055"],
-    [30, 40, 30, 72, "#ff0055"],
-    [0, 40, 30, 40, "#ff0055"],
-    [44, 17, 70, 17, "#d500f9"],
-    [0, 67, 54, 67, "#d500f9"],
-    [54, 0, 54, 40, "#d500f9"],
-  ];
-  const NODES = [
-    [20, 30, "#ff0055"],
-    [45, 18, "#d500f9"],
-    [70, 40, "#ff0055"],
-    [55, 68, "#d500f9"],
-    [30, 72, "#ff0055"],
+    [19, 5, 19, 29], [19, 29, 44, 29], [44, 17, 44, 40], [44, 40, 69, 40],
+    [69, 10, 69, 40], [69, 40, 69, 68], [54, 68, 69, 68], [54, 68, 54, 95],
+    [30, 72, 54, 72], [30, 40, 30, 72], [5, 40, 30, 40], [44, 17, 70, 17],
+    [5, 67, 54, 67], [54, 10, 54, 40],
   ];
 
-  function distSeg(px, py, x1, y1, x2, y2) {
-    const dx = x2 - x1,
-      dy = y2 - y1;
-    const len2 = dx * dx + dy * dy || 1;
-    let t = ((px - x1) * dx + (py - y1) * dy) / len2;
-    t = Math.max(0, Math.min(1, t));
-    return Math.hypot(px - (x1 + t * dx), py - (y1 + t * dy));
+  function randomLevelSegs() {
+    const segs = [];
+    const n = 10 + Math.floor(Math.random() * 6); // 10–15 traces
+    for (let i = 0; i < n; i++) {
+      const vertical = Math.random() > 0.45;
+      if (vertical) {
+        const x = 8 + Math.random() * 84;
+        const y1 = 5 + Math.random() * 40;
+        const y2 = y1 + 15 + Math.random() * 40;
+        segs.push([x, y1, x, Math.min(95, y2)]);
+      } else {
+        const y = 8 + Math.random() * 84;
+        const x1 = 5 + Math.random() * 40;
+        const x2 = x1 + 15 + Math.random() * 40;
+        segs.push([x1, y, Math.min(95, x2), y]);
+      }
+    }
+    // a few L-corners for circuit feel
+    for (let i = 0; i < 3; i++) {
+      const x = 12 + Math.random() * 70;
+      const y = 12 + Math.random() * 70;
+      const x2 = x + (Math.random() > 0.5 ? 12 : -12) * (1 + Math.random());
+      const y2 = y + (Math.random() > 0.5 ? 12 : -12) * (1 + Math.random());
+      segs.push([x, y, Math.max(5, Math.min(95, x2)), y]);
+      segs.push([Math.max(5, Math.min(95, x2)), y, Math.max(5, Math.min(95, x2)), Math.max(5, Math.min(95, y2))]);
+    }
+    return segs;
   }
 
-  function wireCircuitGlow(pageEl, svgId) {
+  function buildTraces(svgId, segs) {
     const svg = document.getElementById(svgId);
-    if (!pageEl || !svg) return;
+    if (!svg) return [];
+    while (svg.firstChild) svg.removeChild(svg.firstChild);
     const lines = [];
-    const dots = [];
-    SEGS.forEach(([x1, y1, x2, y2, color]) => {
+    const use = segs || SEGS;
+    use.forEach((s, i) => {
       const line = document.createElementNS("http://www.w3.org/2000/svg", "line");
-      line.setAttribute("x1", x1);
-      line.setAttribute("y1", y1);
-      line.setAttribute("x2", x2);
-      line.setAttribute("y2", y2);
-      line.setAttribute("stroke", color);
-      line.setAttribute("stroke-opacity", "0");
+      line.setAttribute("x1", s[0]);
+      line.setAttribute("y1", s[1]);
+      line.setAttribute("x2", s[2]);
+      line.setAttribute("y2", s[3]);
+      const col = i % 3 === 0 ? "#d500f9" : "#ff0055";
+      line.setAttribute("stroke", col);
+      line.setAttribute("stroke-opacity", "0.35");
+      line.setAttribute("stroke-width", "0.28");
+      line.dataset.color = col;
+      line.dataset.phase = String(Math.random() * Math.PI * 2);
+      line.dataset.next = String(0.3 + Math.random() * 2);
+      line.dataset.blinkStart = "-1";
+      line.dataset.blinkDur = "0.7";
       svg.appendChild(line);
-      lines.push({ el: line, x1, y1, x2, y2 });
+      lines.push(line);
     });
-    NODES.forEach(([x, y, color]) => {
-      const c = document.createElementNS("http://www.w3.org/2000/svg", "circle");
-      c.setAttribute("cx", x);
-      c.setAttribute("cy", y);
-      c.setAttribute("r", "0.55");
-      c.setAttribute("fill", color);
-      c.setAttribute("fill-opacity", "0");
-      svg.appendChild(c);
-      dots.push({ el: c, x, y });
-    });
+    return lines;
+  }
 
-    const R = 10;
-    pageEl.addEventListener("mousemove", (e) => {
-      const rect = pageEl.getBoundingClientRect();
-      const px = ((e.clientX - rect.left) / rect.width) * 100;
-      const py = ((e.clientY - rect.top) / rect.height) * 100;
-      lines.forEach(({ el, x1, y1, x2, y2 }) => {
-        const d = distSeg(px, py, x1, y1, x2, y2);
-        if (d < R) {
-          const t = 1 - d / R;
-          el.setAttribute("stroke-opacity", (t * 0.55).toFixed(3));
-          el.style.filter =
-            t > 0.2
-              ? `drop-shadow(0 0 ${3 + t * 6}px ${el.getAttribute("stroke")})`
-              : "none";
-        } else {
-          el.setAttribute("stroke-opacity", "0");
-          el.style.filter = "none";
+  let all = buildTraces("circuit-dash", SEGS).concat(buildTraces("circuit-level", randomLevelSegs()));
+
+  window.rerollLevelCircuit = function () {
+    const levelLines = buildTraces("circuit-level", randomLevelSegs());
+    all = buildTraces("circuit-dash", SEGS).concat(levelLines);
+  };
+
+  const t0 = performance.now() / 1000;
+  function tick() {
+    const t = performance.now() / 1000 - t0;
+    if (!all.length) {
+      all = buildTraces("circuit-dash", SEGS).concat(buildTraces("circuit-level", randomLevelSegs()));
+    }
+    all.forEach((line) => {
+      if (!line.isConnected) return;
+      const phase = parseFloat(line.dataset.phase);
+      const next = parseFloat(line.dataset.next);
+      let blinkStart = parseFloat(line.dataset.blinkStart);
+      let blinkDur = parseFloat(line.dataset.blinkDur);
+      if (t >= next) {
+        blinkDur = 0.5 + Math.random() * 0.6;
+        blinkStart = t;
+        line.dataset.blinkStart = String(blinkStart);
+        line.dataset.blinkDur = String(blinkDur);
+        line.dataset.next = String(t + blinkDur + 3 + Math.random() * 6);
+      }
+      let op = 0.28 + 0.05 * Math.sin(t * 0.3 + phase);
+      line.style.filter = "none";
+      if (blinkStart >= 0 && t >= blinkStart && t < blinkStart + blinkDur) {
+        const u = (t - blinkStart) / blinkDur;
+        const envelope = Math.sin(u * Math.PI);
+        op = 0.28 + 0.55 * envelope;
+        if (envelope > 0.25) {
+          line.style.filter =
+            "drop-shadow(0 0 " + (1.5 + envelope * 3).toFixed(1) + "px " + line.dataset.color + ")";
         }
-      });
-      dots.forEach(({ el, x, y }) => {
-        const d = Math.hypot(px - x, py - y);
-        if (d < R * 0.8) {
-          const t = 1 - d / (R * 0.8);
-          el.setAttribute("fill-opacity", (t * 0.7).toFixed(3));
-          el.style.filter = `drop-shadow(0 0 ${2 + t * 5}px ${el.getAttribute("fill")})`;
-        } else {
-          el.setAttribute("fill-opacity", "0");
-          el.style.filter = "none";
-        }
-      });
+      }
+      line.setAttribute("stroke-opacity", op.toFixed(3));
     });
-    pageEl.addEventListener("mouseleave", () => {
-      lines.forEach(({ el }) => {
-        el.setAttribute("stroke-opacity", "0");
-        el.style.filter = "none";
-      });
-      dots.forEach(({ el }) => {
-        el.setAttribute("fill-opacity", "0");
-        el.style.filter = "none";
-      });
+    requestAnimationFrame(tick);
+  }
+  requestAnimationFrame(tick);
+
+  function bindTitleGlitch(el) {
+    if (!el || el.dataset.glitchBound === "1") return;
+    el.dataset.glitchBound = "1";
+    el.addEventListener("mouseenter", function () {
+      if (el.dataset.glitchLock === "1") return;
+      el.dataset.glitchLock = "1";
+      el.classList.add("glitching");
+      setTimeout(function () {
+        el.classList.remove("glitching");
+        el.dataset.glitchLock = "0";
+      }, 260);
     });
   }
+
+  function measure(el) {
+    if (!el) return 0;
+    const prev = {
+      pos: el.style.position,
+      vis: el.style.visibility,
+      op: el.style.opacity,
+    };
+    el.style.position = "static";
+    el.style.visibility = "hidden";
+    el.style.opacity = "1";
+    const h = el.offsetHeight;
+    el.style.position = prev.pos || "absolute";
+    el.style.visibility = prev.vis || "";
+    el.style.opacity = prev.op || "";
+    return h;
+  }
+
+  window.lockHintHeight = function () {
+    const body = document.getElementById("hint-body");
+    const epic = document.getElementById("hint-indirect-text");
+    const tech = document.getElementById("hint-technical-text");
+    if (!body || !epic || !tech) return;
+    const h = Math.max(measure(epic), measure(tech), 40);
+    body.style.height = h + "px";
+    body.style.minHeight = h + "px";
+  };
+
+  window.setupZenLevelUI = function () {
+    const swap = document.getElementById("hint-swap");
+    const body = document.getElementById("hint-body");
+    const hintHint = document.getElementById("hint-hint-label");
+    const title = document.getElementById("level-title");
+    if (title) {
+      title.dataset.glitchBound = "0";
+      bindTitleGlitch(title);
+    }
+    if (swap && swap.dataset.bound !== "1") {
+      swap.dataset.bound = "1";
+      swap.addEventListener("mouseenter", function () {
+        if (swap.classList.contains("open")) return;
+        swap.classList.add("open");
+        if (body) {
+          body.classList.add("glitching");
+          setTimeout(function () {
+            body.classList.remove("glitching");
+          }, 320);
+        }
+        if (hintHint) hintHint.style.marginTop = "8px";
+      });
+      swap.addEventListener("mouseleave", function () {
+        swap.classList.remove("open");
+        if (body) body.classList.remove("glitching");
+        if (hintHint) hintHint.style.marginTop = "4px";
+      });
+    }
+    window.lockHintHeight();
+  };
 
   function updateLiveShell() {
     const cmd = document.getElementById("live-cmd");
@@ -731,12 +840,92 @@ if (_updateOverlay) {
     }
   }
 
-  wireCircuitGlow(document.getElementById("dashboard"), "circuit-glow-dash");
-  wireCircuitGlow(document.getElementById("level-page"), "circuit-glow-level");
-
   const u = document.getElementById("payload-input");
   const p = document.getElementById("payload-pass");
   if (u) u.addEventListener("input", updateLiveShell);
   if (p) p.addEventListener("input", updateLiveShell);
   updateLiveShell();
+
+  window.setupZenLevelUI();
+
+  // rebuild traces when page shown (hidden SVG can have 0 size initially)
+  const dashPage = document.getElementById("dashboard");
+  const levelPage = document.getElementById("level-page");
+  const obs = new MutationObserver(function () {
+    all = buildTraces("circuit-dash", SEGS).concat(
+      buildTraces("circuit-level", randomLevelSegs())
+    );
+  });
+  if (dashPage) obs.observe(dashPage, { attributes: true, attributeFilter: ["class"] });
+  if (levelPage) obs.observe(levelPage, { attributes: true, attributeFilter: ["class"] });
+
+  window.addEventListener("resize", function () {
+    if (typeof window.lockHintHeight === "function") window.lockHintHeight();
+  });
+})();
+
+
+/* ── Button sweep/pulse + hero title swap ───────────────────── */
+(function () {
+  const SEL = ".btn-attack, .btn-submit, .btn-share, .btn-ghost";
+
+  function pulse(el) {
+    if (!el || !el.classList) return;
+    el.classList.remove("fired");
+    void el.offsetWidth;
+    el.classList.add("fired");
+    setTimeout(function () { el.classList.remove("fired"); }, 450);
+  }
+  function sweep(el) {
+    if (!el || !el.classList) return;
+    el.classList.remove("sweep");
+    void el.offsetWidth;
+    el.classList.add("sweep");
+    setTimeout(function () { el.classList.remove("sweep"); }, 520);
+  }
+  window.pulseBtn = pulse;
+
+  document.addEventListener("mouseover", function (e) {
+    const btn = e.target && e.target.closest ? e.target.closest(SEL) : null;
+    if (!btn) return;
+    const from = e.relatedTarget;
+    if (from && btn.contains(from)) return; // still inside same button
+    sweep(btn);
+  });
+  document.addEventListener(
+    "click",
+    function (e) {
+      const btn = e.target && e.target.closest ? e.target.closest(SEL) : null;
+      if (btn) pulse(btn);
+    },
+    true
+  );
+
+  const title = document.getElementById("hero-title");
+  if (title) {
+    const NORMAL = "SQL Injection Lab";
+    const POWERED_HTML = 'powered by <span class="hero-edis">Edis</span>';
+    let lock = false;
+    title.addEventListener("mouseenter", function () {
+      if (lock) return;
+      lock = true;
+      title.classList.add("glitching");
+      setTimeout(function () {
+        title.classList.remove("glitching");
+        title.classList.add("powered-mode");
+        title.innerHTML = POWERED_HTML;
+        title.setAttribute("data-text", "powered by Edis");
+        lock = false;
+      }, 180);
+    });
+    title.addEventListener("mouseleave", function () {
+      title.classList.add("glitching");
+      setTimeout(function () {
+        title.classList.remove("glitching");
+        title.classList.remove("powered-mode");
+        title.textContent = NORMAL;
+        title.setAttribute("data-text", NORMAL);
+      }, 120);
+    });
+  }
 })();

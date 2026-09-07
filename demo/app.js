@@ -203,12 +203,18 @@ function openLevel(id) {
   shareLevelMeta = { id, name: meta.name, diff: meta.diff, epic: meta.hint_i || "" };
 
   $("#level-badge").textContent = `LEVEL ${String(id).padStart(2, "0")}`;
-  $("#level-title").textContent = meta.name;
+  const titleEl = $("#level-title");
+  titleEl.textContent = meta.name;
+  titleEl.setAttribute("data-text", meta.name || "—");
   $("#level-difficulty").textContent = getDiffLabel(meta.diff);
-  $("#level-desc").textContent = meta.desc;
-  $("#hint-indirect-text").textContent = meta.hint_i;
-  $("#hint-technical-text").textContent = meta.hint_t;
-  $("#hint-technical").classList.add("hidden");
+  $("#level-desc").textContent = meta.desc || "One shot. Make it count.";
+  $("#hint-indirect-text").textContent = meta.hint_i || "";
+  $("#hint-technical-text").textContent = meta.hint_t || "";
+  const swap = $("#hint-swap");
+  if (swap) swap.classList.remove("open");
+  if (typeof window.lockHintHeight === "function") {
+    requestAnimationFrame(() => window.lockHintHeight());
+  }
 
   const demoOnly = id !== 1;
   $("#demo-only-note").classList.toggle("hidden", !demoOnly);
@@ -252,9 +258,7 @@ $("#btn-back").addEventListener("click", () => {
   loadDashboard();
 });
 
-$("#hint-indirect").addEventListener("click", () => {
-  $("#hint-technical").classList.toggle("hidden");
-});
+/* hint-swap handled below */
 
 $("#btn-send-payload").addEventListener("click", () => {
   if (currentLevel !== 1) return;
@@ -262,14 +266,37 @@ $("#btn-send-payload").addEventListener("click", () => {
   const password = $("#payload-pass").value;
   lastPayload = { username, password };
   const res = mockAttack(username, password);
-  $("#response-area").classList.remove("hidden");
-  let out = "";
-  if (res.message) out += res.message + "\n\n";
-  if (res.raw) out += res.raw;
-  $("#response-content").textContent = out;
+  const area = $("#response-area");
+  const content = $("#response-content");
+  area.classList.remove("hidden");
+  area.classList.remove("scan", "booting");
+  void area.offsetWidth;
+  area.classList.add("booting", "scan");
+  const lines = [];
+  lines.push("→ POST /login");
+  lines.push("username: " + (username || "(empty)"));
+  lines.push("password: " + (password || "(empty)"));
+  lines.push("—");
+  if (res.message) lines.push(res.message);
+  if (res.raw) lines.push(res.raw);
+  content.innerHTML = lines.map((t) => `<div class="resp-line">${escapeHtml(t)}</div>`).join("");
+  setTimeout(() => area.classList.remove("scan", "booting"), 800);
+  const btn = $("#btn-send-payload");
+  btn.classList.remove("fired");
+  void btn.offsetWidth;
+  btn.classList.add("fired");
+  setTimeout(() => btn.classList.remove("fired"), 500);
 });
 
 $("#btn-submit-flag").addEventListener("click", () => {
+  const sb = $("#btn-submit-flag");
+  if (sb) {
+    sb.classList.remove("fired");
+    void sb.offsetWidth;
+    sb.classList.add("fired");
+    setTimeout(() => sb.classList.remove("fired"), 500);
+  }
+
   if (currentLevel !== 1) return;
   const flag = ($("#flag-input").value || "").trim();
   const msg = $("#flag-message");
@@ -447,3 +474,156 @@ $("#btn-share-download").addEventListener("click", async () => {
 });
 
 loadDashboard();
+
+
+/* ── Circuit soft blink + zen hint/glitch (demo) ───────────── */
+(function () {
+  const SEGS = [
+    [19, 5, 19, 29], [19, 29, 44, 29], [44, 17, 44, 40], [44, 40, 69, 40],
+    [69, 10, 69, 40], [69, 40, 69, 68], [54, 68, 69, 68], [54, 68, 54, 95],
+    [30, 72, 54, 72], [30, 40, 30, 72], [5, 40, 30, 40], [44, 17, 70, 17],
+    [5, 67, 54, 67], [54, 10, 54, 40],
+  ];
+
+  function buildTraces(svgId) {
+    const svg = document.getElementById(svgId);
+    if (!svg) return [];
+    while (svg.firstChild) svg.removeChild(svg.firstChild);
+    const lines = [];
+    SEGS.forEach((s, i) => {
+      const line = document.createElementNS("http://www.w3.org/2000/svg", "line");
+      line.setAttribute("x1", s[0]);
+      line.setAttribute("y1", s[1]);
+      line.setAttribute("x2", s[2]);
+      line.setAttribute("y2", s[3]);
+      const col = i % 3 === 0 ? "#d500f9" : "#ff0055";
+      line.setAttribute("stroke", col);
+      line.setAttribute("stroke-opacity", "0.28");
+      line.setAttribute("stroke-width", "0.45");
+      line.dataset.color = col;
+      line.dataset.phase = String(Math.random() * Math.PI * 2);
+      line.dataset.next = String(0.5 + Math.random() * 3);
+      line.dataset.blinkStart = "-1";
+      line.dataset.blinkDur = "0.7";
+      svg.appendChild(line);
+      lines.push(line);
+    });
+    return lines;
+  }
+
+  let all = buildTraces("circuit-dash").concat(buildTraces("circuit-level"));
+  const t0 = performance.now() / 1000;
+  function tick() {
+    const t = performance.now() / 1000 - t0;
+    if (!all.length) {
+      all = buildTraces("circuit-dash").concat(buildTraces("circuit-level"));
+    }
+    all.forEach((line) => {
+      if (!line.isConnected) return;
+      const phase = parseFloat(line.dataset.phase);
+      const next = parseFloat(line.dataset.next);
+      let blinkStart = parseFloat(line.dataset.blinkStart);
+      let blinkDur = parseFloat(line.dataset.blinkDur);
+      if (t >= next) {
+        blinkDur = 0.5 + Math.random() * 0.6;
+        blinkStart = t;
+        line.dataset.blinkStart = String(blinkStart);
+        line.dataset.blinkDur = String(blinkDur);
+        line.dataset.next = String(t + blinkDur + 5 + Math.random() * 9);
+      }
+      let op = 0.22 + 0.04 * Math.sin(t * 0.3 + phase);
+      line.style.filter = "none";
+      if (blinkStart >= 0 && t >= blinkStart && t < blinkStart + blinkDur) {
+        const u = (t - blinkStart) / blinkDur;
+        const envelope = Math.sin(u * Math.PI);
+        op = 0.22 + 0.55 * envelope;
+        if (envelope > 0.25) {
+          line.style.filter =
+            "drop-shadow(0 0 " + (2 + envelope * 5).toFixed(1) + "px " + line.dataset.color + ")";
+        }
+      }
+      line.setAttribute("stroke-opacity", op.toFixed(3));
+    });
+    requestAnimationFrame(tick);
+  }
+  requestAnimationFrame(tick);
+
+  function bindTitleGlitch(el) {
+    if (!el || el.dataset.glitchBound === "1") return;
+    el.dataset.glitchBound = "1";
+    el.addEventListener("mouseenter", function () {
+      if (el.dataset.glitchLock === "1") return;
+      el.dataset.glitchLock = "1";
+      el.classList.add("glitching");
+      setTimeout(function () {
+        el.classList.remove("glitching");
+        el.dataset.glitchLock = "0";
+      }, 450);
+    });
+  }
+
+  function measure(el) {
+    if (!el) return 0;
+    const prev = { pos: el.style.position, vis: el.style.visibility, op: el.style.opacity };
+    el.style.position = "static";
+    el.style.visibility = "hidden";
+    el.style.opacity = "1";
+    const h = el.offsetHeight;
+    el.style.position = prev.pos || "absolute";
+    el.style.visibility = prev.vis || "";
+    el.style.opacity = prev.op || "";
+    return h;
+  }
+
+  window.lockHintHeight = function () {
+    const body = document.getElementById("hint-body");
+    const epic = document.getElementById("hint-indirect-text");
+    const tech = document.getElementById("hint-technical-text");
+    if (!body || !epic || !tech) return;
+    const h = Math.max(measure(epic), measure(tech), 40);
+    body.style.height = h + "px";
+    body.style.minHeight = h + "px";
+  };
+
+  function setupHint() {
+    const swap = document.getElementById("hint-swap");
+    const body = document.getElementById("hint-body");
+    const hintHint = document.getElementById("hint-hint-label");
+    const title = document.getElementById("level-title");
+    bindTitleGlitch(title);
+
+    if (swap && swap.dataset.bound !== "1") {
+      swap.dataset.bound = "1";
+      swap.addEventListener("mouseenter", function () {
+        if (swap.classList.contains("open")) return;
+        swap.classList.add("open");
+        if (body) {
+          body.classList.add("glitching");
+          setTimeout(function () { body.classList.remove("glitching"); }, 320);
+        }
+        if (hintHint) hintHint.style.marginTop = "8px";
+      });
+      swap.addEventListener("mouseleave", function () {
+        swap.classList.remove("open");
+        if (body) body.classList.remove("glitching");
+        if (hintHint) hintHint.style.marginTop = "4px";
+      });
+    }
+    window.lockHintHeight();
+  }
+
+  const _openLevel = openLevel;
+  openLevel = function (id) {
+    _openLevel(id);
+    requestAnimationFrame(function () {
+      const title = document.getElementById("level-title");
+      if (title) title.dataset.glitchBound = "0";
+      setupHint();
+    });
+  };
+
+  setupHint();
+  window.addEventListener("resize", function () {
+    if (typeof window.lockHintHeight === "function") window.lockHintHeight();
+  });
+})();

@@ -11,11 +11,6 @@ Real vulnerable queries. Isolated databases per level. Random flags per install.
 [![License](https://img.shields.io/badge/license-Educational-d500f9?style=flat-square)](#license)
 
 ---
-
-## Preview
-
-![SQLi Playground dashboard](pictures/photo.png)
-
 Static UI preview (no database): **[Live Demo](https://you-in-you.github.io/sqli-playground/demo/)**  
 Level 01 is interactive in the browser; the full lab needs a local install.
 
@@ -339,6 +334,12 @@ To publish a release: bump `APP_VERSION` in code/config, update `version/version
 Educational use. Use responsibly.
 
 ---
+
+## AI Generation & Bug Reports
+
+This project was built with the help of AI for educational purposes. Due to the nature of AI-generated code, you might encounter bugs, unexpected behavior, or logic flaws in some levels.
+
+If you spot any issues or have suggestions for improvement, please **[Open an Issue](https://github.com/you-in-you/sqli-playground/issues)** or submit a Pull Request. Your feedback is much appreciated!
 
 ## Author
 

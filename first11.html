@@ -1,0 +1,975 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>SQLi Playground · Workbench</title>
+    <style>
+        /* ----- RESET & BASE ----- */
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            background: #0a0d10;
+            color: #d0d8e0;
+            font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 10px;
+            line-height: 1.5;
+        }
+
+        /* ----- MAIN WORKBENCH ----- */
+        .workbench {
+            max-width: 1480px;
+            width: 100%;
+            height: 100%;
+            max-height: 920px;
+            background: #11161c;
+            border-radius: 10px;
+            border: 1px solid #262e36;
+            box-shadow: 0 16px 48px rgba(0, 0, 0, 0.75);
+            display: grid;
+            grid-template-columns: 200px 1fr 260px;
+            grid-template-rows: 44px 1fr 40px;
+            overflow: hidden;
+            position: relative;
+        }
+
+        /* ----- TOP BAR (minimal) ----- */
+        .topbar {
+            grid-column: 1 / 4;
+            grid-row: 1 / 2;
+            background: #0e1319;
+            border-bottom: 1px solid #20272f;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 0 18px;
+            font-size: 13px;
+            letter-spacing: 0.2px;
+        }
+        .topbar-left {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            color: #b0c4d4;
+        }
+        .topbar-left .logo {
+            font-weight: 600;
+            color: #d6e4f0;
+            letter-spacing: -0.3px;
+        }
+        .topbar-left .sep {
+            color: #374651;
+        }
+        .topbar-left .mode {
+            background: #1a232c;
+            padding: 2px 12px;
+            border-radius: 30px;
+            font-size: 11px;
+            color: #7e97ab;
+            border: 1px solid #28333e;
+        }
+
+        .topbar-right {
+            display: flex;
+            align-items: center;
+            gap: 14px;
+            font-size: 12px;
+            color: #6f8394;
+        }
+        .topbar-right .status {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+        }
+        .topbar-right .dot {
+            width: 7px;
+            height: 7px;
+            background: #3fba7c;
+            border-radius: 50%;
+            display: inline-block;
+        }
+        .topbar-right .db-version {
+            background: #161f27;
+            padding: 2px 10px;
+            border-radius: 20px;
+            border: 1px solid #26303a;
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 11px;
+            color: #8ba3b8;
+        }
+
+        /* ----- SIDEBAR (Levels) ----- */
+        .sidebar {
+            grid-column: 1 / 2;
+            grid-row: 2 / 4;
+            background: #0e1319;
+            border-right: 1px solid #1d252d;
+            padding: 10px 6px 10px 10px;
+            overflow-y: auto;
+        }
+        .sidebar::-webkit-scrollbar {
+            width: 3px;
+        }
+        .sidebar::-webkit-scrollbar-thumb {
+            background: #29363f;
+            border-radius: 6px;
+        }
+
+        .sidebar-header {
+            font-size: 10px;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.8px;
+            color: #495f6e;
+            padding: 0 6px 10px 6px;
+            border-bottom: 1px solid #1a232b;
+            margin-bottom: 10px;
+        }
+
+        .level-list {
+            display: flex;
+            flex-direction: column;
+            gap: 1px;
+        }
+
+        .level-item {
+            display: flex;
+            align-items: center;
+            gap: 5px;
+            padding: 4px 8px;
+            border-radius: 4px;
+            font-size: 12px;
+            color: #5f7382;
+            cursor: default;
+            transition: 0.08s ease;
+            border-left: 2px solid transparent;
+        }
+        .level-item .num {
+            min-width: 26px;
+            font-feature-settings: "tnum";
+            font-size: 12px;
+        }
+        .level-item .title {
+            font-size: 11px;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            flex: 1;
+        }
+        .level-item .status-icon {
+            font-size: 12px;
+            opacity: 0.6;
+            width: 16px;
+            text-align: right;
+        }
+
+        .level-item.completed {
+            color: #b6cedf;
+            border-left-color: #3fba7c;
+        }
+        .level-item.completed .status-icon {
+            color: #3fba7c;
+            opacity: 1;
+        }
+
+        .level-item.current {
+            background: #19222b;
+            color: #e4edf5;
+            border-left-color: #6a9bc7;
+        }
+        .level-item.current .status-icon {
+            color: #6a9bc7;
+            opacity: 1;
+        }
+
+        .level-item.locked {
+            color: #374551;
+            border-left-color: transparent;
+        }
+        .level-item.locked .status-icon {
+            opacity: 0.3;
+        }
+
+        .level-item:not(.locked):hover {
+            background: #141e27;
+            cursor: pointer;
+        }
+
+        /* ----- CENTER PANEL (Challenge + Target) ----- */
+        .center {
+            grid-column: 2 / 3;
+            grid-row: 2 / 4;
+            padding: 14px 20px 10px 20px;
+            overflow-y: auto;
+            display: flex;
+            flex-direction: column;
+            background: #11171d;
+        }
+        .center::-webkit-scrollbar {
+            width: 4px;
+        }
+        .center::-webkit-scrollbar-thumb {
+            background: #26323c;
+            border-radius: 8px;
+        }
+
+        .breadcrumb {
+            font-size: 11px;
+            color: #4d6576;
+            letter-spacing: 0.5px;
+            margin-bottom: 2px;
+        }
+        .breadcrumb span {
+            color: #8aa2b6;
+        }
+
+        .challenge-title {
+            font-size: 22px;
+            font-weight: 500;
+            letter-spacing: -0.2px;
+            color: #eaf0f6;
+            margin: 2px 0 2px 0;
+        }
+
+        .challenge-meta {
+            display: flex;
+            gap: 16px;
+            flex-wrap: wrap;
+            font-size: 12px;
+            color: #6b7f8e;
+            margin-bottom: 10px;
+        }
+        .challenge-meta .category {
+            background: #18222b;
+            padding: 0 12px;
+            border-radius: 30px;
+            color: #a7bed2;
+            font-size: 11px;
+        }
+        .challenge-meta .difficulty {
+            color: #e6b87e;
+        }
+
+        .description {
+            background: #131c24;
+            padding: 10px 14px;
+            border-radius: 5px;
+            border-left: 3px solid #2d3e4d;
+            margin-bottom: 14px;
+            font-size: 13px;
+            color: #c8d6e0;
+        }
+
+        /* Target panel */
+        .target-panel {
+            background: #0d141b;
+            border: 1px solid #1f2933;
+            border-radius: 5px;
+            padding: 12px 14px;
+            margin-bottom: 14px;
+        }
+        .target-panel .label {
+            font-size: 10px;
+            font-weight: 600;
+            color: #4d6a7d;
+            text-transform: uppercase;
+            letter-spacing: 0.6px;
+            margin-bottom: 6px;
+        }
+
+        .http-line {
+            background: #090f14;
+            padding: 6px 12px;
+            border-radius: 4px;
+            font-family: 'JetBrains Mono', 'Fira Code', monospace;
+            font-size: 12px;
+            color: #b8ccdc;
+            border: 1px solid #18222b;
+            display: flex;
+            flex-wrap: wrap;
+            gap: 4px 10px;
+        }
+        .http-line .method {
+            color: #9bb8d4;
+            font-weight: 500;
+        }
+        .http-line .path {
+            color: #d2e2f0;
+        }
+        .http-line .param {
+            color: #8db4d0;
+        }
+
+        .response-area {
+            margin-top: 8px;
+            background: #090f14;
+            border: 1px solid #18222b;
+            border-radius: 4px;
+            padding: 8px 12px;
+            font-family: 'JetBrains Mono', 'Fira Code', monospace;
+            font-size: 12px;
+            color: #bdd0de;
+            white-space: pre-wrap;
+            word-break: break-word;
+            max-height: 120px;
+            overflow-y: auto;
+        }
+
+        /* Flag row */
+        .flag-row {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            margin: 8px 0 10px 0;
+            flex-wrap: wrap;
+        }
+        .flag-input {
+            flex: 1;
+            min-width: 160px;
+            background: #0c131b;
+            border: 1px solid #26333e;
+            border-radius: 5px;
+            padding: 6px 12px;
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 12px;
+            color: #d0e0ec;
+            outline: none;
+            transition: 0.12s;
+        }
+        .flag-input:focus {
+            border-color: #3e5f78;
+            background: #101a24;
+        }
+        .flag-submit {
+            background: #1a2a38;
+            border: 1px solid #2b4053;
+            color: #d4e2f0;
+            padding: 5px 18px;
+            border-radius: 30px;
+            font-weight: 500;
+            font-size: 12px;
+            cursor: pointer;
+            transition: 0.12s;
+        }
+        .flag-submit:hover {
+            background: #253b4b;
+            border-color: #3b5c74;
+        }
+
+        .flag-feedback {
+            font-size: 13px;
+            min-height: 22px;
+            margin-top: -4px;
+            margin-bottom: 6px;
+        }
+        .flag-feedback.success {
+            color: #4fbf8a;
+        }
+        .flag-feedback.error {
+            color: #d98a8a;
+        }
+
+        /* Hints */
+        .hint-section {
+            margin: 6px 0 4px 0;
+            border-top: 1px solid #1c2630;
+            padding-top: 10px;
+        }
+        .hint-section details {
+            cursor: pointer;
+        }
+        .hint-section summary {
+            font-size: 12px;
+            font-weight: 500;
+            color: #7e95a5;
+            letter-spacing: 0.2px;
+        }
+        .hint-section .hint-block {
+            margin-top: 6px;
+            padding: 6px 12px;
+            background: #0e161e;
+            border-radius: 4px;
+            border-left: 2px solid #3d5a6e;
+            font-size: 12px;
+            color: #b8ccdb;
+        }
+        .hint-block .hint-label {
+            color: #638197;
+            font-weight: 500;
+            font-size: 10px;
+            text-transform: uppercase;
+            letter-spacing: 0.4px;
+        }
+        .hint-block .hint-text {
+            margin-top: 2px;
+            color: #cbdce8;
+        }
+
+        /* ----- RIGHT PANEL (History + Info) ----- */
+        .right-panel {
+            grid-column: 3 / 4;
+            grid-row: 2 / 4;
+            background: #0e1319;
+            border-left: 1px solid #1d252d;
+            padding: 14px 14px 10px 14px;
+            display: flex;
+            flex-direction: column;
+            gap: 12px;
+            overflow-y: auto;
+        }
+        .right-panel::-webkit-scrollbar {
+            width: 3px;
+        }
+        .right-panel::-webkit-scrollbar-thumb {
+            background: #26323c;
+            border-radius: 6px;
+        }
+
+        .panel-block {
+            background: #0b1117;
+            border: 1px solid #1b242d;
+            border-radius: 5px;
+            padding: 10px 12px;
+        }
+        .panel-block .block-title {
+            font-size: 10px;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.6px;
+            color: #4b6577;
+            margin-bottom: 6px;
+        }
+
+        .history-list {
+            display: flex;
+            flex-direction: column;
+            gap: 3px;
+            max-height: 180px;
+            overflow-y: auto;
+        }
+        .history-list::-webkit-scrollbar {
+            width: 3px;
+        }
+        .history-list::-webkit-scrollbar-thumb {
+            background: #26323c;
+            border-radius: 6px;
+        }
+
+        .history-item {
+            font-size: 12px;
+            font-family: 'JetBrains Mono', monospace;
+            color: #b0c8db;
+            padding: 2px 4px;
+            border-bottom: 1px solid #17202a;
+            display: flex;
+            justify-content: space-between;
+        }
+        .history-item .lvl {
+            color: #6f8b9f;
+        }
+        .history-item .flg {
+            color: #b8d4e8;
+            font-size: 11px;
+        }
+
+        .info-row {
+            display: flex;
+            justify-content: space-between;
+            font-size: 12px;
+            color: #6d8394;
+            padding: 3px 0;
+            border-bottom: 1px solid #18202a;
+        }
+        .info-row .label {
+            color: #4f6a7c;
+        }
+        .info-row .value {
+            color: #b6cdde;
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 11px;
+        }
+
+        .reset-area {
+            margin-top: auto;
+            padding-top: 8px;
+            border-top: 1px solid #1c2630;
+            display: flex;
+            justify-content: flex-end;
+        }
+        .reset-btn {
+            background: transparent;
+            border: 1px solid #2a3844;
+            color: #6f8698;
+            font-size: 11px;
+            padding: 3px 14px;
+            border-radius: 30px;
+            cursor: pointer;
+            transition: 0.12s;
+        }
+        .reset-btn:hover {
+            background: #1a2430;
+            color: #b8cedf;
+            border-color: #3f5a6e;
+        }
+
+        /* ----- BOTTOM STATUS BAR (minimal) ----- */
+        .statusbar {
+            grid-column: 1 / 4;
+            grid-row: 3 / 4;
+            background: #0b1116;
+            border-top: 1px solid #1a232b;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 0 18px;
+            font-size: 11px;
+            color: #4e6678;
+        }
+        .statusbar .left {
+            display: flex;
+            gap: 20px;
+        }
+        .statusbar .right {
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 10px;
+            color: #4f6d82;
+        }
+
+        /* ----- RESPONSIVE ----- */
+        @media (max-width: 1000px) {
+            .workbench {
+                grid-template-columns: 160px 1fr 200px;
+            }
+        }
+        @media (max-width: 780px) {
+            .workbench {
+                grid-template-columns: 1fr;
+                grid-template-rows: 44px auto auto 40px;
+                max-height: none;
+                height: 98vh;
+            }
+            .topbar {
+                grid-column: 1 / 2;
+                grid-row: 1 / 2;
+            }
+            .sidebar {
+                grid-column: 1 / 2;
+                grid-row: 2 / 3;
+                max-height: 140px;
+                border-right: none;
+                border-bottom: 1px solid #1d252d;
+            }
+            .center {
+                grid-column: 1 / 2;
+                grid-row: 3 / 4;
+            }
+            .right-panel {
+                grid-column: 1 / 2;
+                grid-row: 4 / 5;
+                border-left: none;
+                border-top: 1px solid #1d252d;
+                flex-direction: row;
+                flex-wrap: wrap;
+                max-height: 180px;
+                overflow-y: auto;
+            }
+            .right-panel .panel-block {
+                flex: 1;
+                min-width: 140px;
+            }
+            .statusbar {
+                display: none;
+            }
+        }
+        @media (max-width: 480px) {
+            .topbar-left .mode {
+                display: none;
+            }
+            .challenge-title {
+                font-size: 18px;
+            }
+            .flag-row {
+                flex-direction: column;
+                align-items: stretch;
+            }
+        }
+    </style>
+</head>
+<body>
+<div class="workbench" id="app">
+
+    <!-- TOP BAR -->
+    <header class="topbar">
+        <div class="topbar-left">
+            <span class="logo">⧩ SQLi Playground</span>
+            <span class="sep">/</span>
+            <span style="color:#8aa2b6;">workbench</span>
+            <span class="mode">CTF · local</span>
+        </div>
+        <div class="topbar-right">
+            <span class="status"><span class="dot"></span> MariaDB 11.x</span>
+            <span class="db-version">⚡ 127.0.0.1:3306</span>
+        </div>
+    </header>
+
+    <!-- SIDEBAR -->
+    <nav class="sidebar" id="sidebar">
+        <div class="sidebar-header">⚙ levels</div>
+        <div class="level-list" id="levelList"></div>
+    </nav>
+
+    <!-- CENTER -->
+    <main class="center" id="center">
+        <div class="breadcrumb">PLAYGROUND / <span id="levelBreadcrumb">LEVEL 01</span></div>
+        <h1 class="challenge-title" id="challengeTitle">The Empty Castle</h1>
+        <div class="challenge-meta">
+            <span class="category" id="categoryBadge">Basic SQL Injection</span>
+            <span class="difficulty" id="difficultyBadge">★☆☆☆☆</span>
+        </div>
+
+        <div class="description" id="descriptionText">
+            A tiny search endpoint. Something is not quite right with the way the query is built.
+        </div>
+
+        <!-- TARGET -->
+        <div class="target-panel">
+            <div class="label">🎯 target application</div>
+            <div class="http-line">
+                <span class="method">GET</span>
+                <span class="path">/search?q=</span>
+                <span class="param" id="queryParam">alice</span>
+            </div>
+            <div class="response-area" id="responseArea">{
+                "results": [
+                { "id": 1, "username": "alice" },
+                { "id": 2, "username": "bob" }
+                ]
+            }</div>
+        </div>
+
+        <!-- FLAG -->
+        <div class="flag-row">
+            <input class="flag-input" id="flagInput" placeholder="Enter the flag..." spellcheck="false" />
+            <button class="flag-submit" id="submitFlag">Submit</button>
+        </div>
+        <div class="flag-feedback" id="flagFeedback"></div>
+
+        <!-- HINTS -->
+        <div class="hint-section">
+            <details>
+                <summary>📘 hints</summary>
+                <div class="hint-block">
+                    <div class="hint-label">story</div>
+                    <div class="hint-text" id="storyHint">"No soldiers are inside the castle."</div>
+                </div>
+                <div class="hint-block" style="margin-top:6px;">
+                    <div class="hint-label">technical</div>
+                    <div class="hint-text" id="techHint">The application places your input directly inside a string condition. Think about what happens when the condition is changed rather than searched.</div>
+                </div>
+            </details>
+        </div>
+    </main>
+
+    <!-- RIGHT PANEL -->
+    <aside class="right-panel" id="rightPanel">
+        <div class="panel-block" style="flex:2;">
+            <div class="block-title">📋 solved history</div>
+            <div class="history-list" id="historyList">
+                <span style="color:#3d5566; font-size:12px;">— none —</span>
+            </div>
+        </div>
+
+        <div class="panel-block" style="flex:1.5;">
+            <div class="block-title">ℹ session</div>
+            <div class="info-row"><span class="label">current</span><span class="value" id="sessionCurrent">01</span></div>
+            <div class="info-row"><span class="label">solved</span><span class="value" id="sessionSolved">0</span></div>
+            <div class="info-row"><span class="label">progress</span><span class="value" id="sessionProgress">0%</span></div>
+            <div class="reset-area">
+                <button class="reset-btn" id="resetBtn">⟲ reset</button>
+            </div>
+        </div>
+    </aside>
+
+    <!-- STATUS BAR -->
+    <footer class="statusbar">
+        <div class="left">
+            <span>⚡ local instance</span>
+            <span>🔒 no remote</span>
+        </div>
+        <div class="right">SQLi Playground v0.2 · 60 levels</div>
+    </footer>
+</div>
+
+<script>
+    (function() {
+        // ----- LEVEL DATA (first 10 detailed, rest placeholder) -----
+        const LEVELS = [];
+        const titles = [
+            "The Empty Castle", "The Guard's Post", "Hidden Chamber", "Broken Gate",
+            "Oracle's Whisper", "Union Square", "Blind Faith", "Time Lapse",
+            "Filtered Out", "Escaped Prisoner"
+        ];
+        const stories = [
+            "A tiny search endpoint. Something is not quite right with the way the query is built.",
+            "Login form. The admin knows something you don't.",
+            "A product catalog with a vulnerable parameter.",
+            "The gatekeeper checks credentials, but maybe you can bypass.",
+            "Error messages reveal too much.",
+            "You need to combine data from multiple tables.",
+            "No output? Maybe you can still guess the truth.",
+            "A delay might tell you everything.",
+            "Some characters are blocked. Can you still inject?",
+            "Encoding is your friend."
+        ];
+        const storyHints = [
+            '"No soldiers are inside the castle."',
+            '"The guard knows a secret password."',
+            '"What lies beneath the floorboards?"',
+            '"The gate opens from the inside."',
+            '"The oracle speaks in riddles."',
+            '"Two armies march together."',
+            '"In darkness, you must feel the truth."',
+            '"Patience is a virtue."',
+            '"The filter is a sieve, not a wall."',
+            '"Speak in tongues."'
+        ];
+        const techHints = [
+            "The application places your input directly inside a string condition. Think about what happens when the condition is changed rather than searched.",
+            "Try to make the WHERE clause always true. What does that do to authentication?",
+            "Use UNION to retrieve data from other tables. But first, find the number of columns.",
+            "The query uses the username and password fields. Can you make the query return a different user?",
+            "Observe the error messages. They might leak column names or table structures.",
+            "UNION SELECT requires the same number of columns as the original query. Enumerate them.",
+            "The application does not display data. But you can ask yes/no questions.",
+            "Use SLEEP() to infer truth based on response time.",
+            "Certain keywords are blocked. Try comments or double encoding.",
+            "URL encode your payload to bypass simple filters."
+        ];
+        const categories = [
+            "Basic SQL Injection", "Authentication Bypass", "Error-Based SQLi",
+            "Authentication Bypass", "Error-Based SQLi", "UNION-Based SQLi",
+            "Boolean-Based Blind SQLi", "Time-Based Blind SQLi",
+            "Filtering / WAF Bypass", "Encoding / Advanced"
+        ];
+        const difficulties = ["★☆☆☆☆","★☆☆☆☆","★★☆☆☆","★★☆☆☆","★★★☆☆","★★★☆☆","★★★★☆","★★★★☆","★★★★★","★★★★★"];
+        const flags = [
+            "FLAG{level_01_demo}", "FLAG{level_02_demo}", "FLAG{level_03_demo}",
+            "FLAG{level_04_demo}", "FLAG{level_05_demo}", "FLAG{level_06_demo}",
+            "FLAG{level_07_demo}", "FLAG{level_08_demo}", "FLAG{level_09_demo}",
+            "FLAG{level_10_demo}"
+        ];
+
+        for (let i = 1; i <= 60; i++) {
+            const idx = i - 1;
+            if (i <= 10) {
+                LEVELS.push({
+                    id: i,
+                    title: titles[idx],
+                    story: stories[idx],
+                    storyHint: storyHints[idx],
+                    techHint: techHints[idx],
+                    category: categories[idx],
+                    difficulty: difficulties[idx],
+                    flag: flags[idx],
+                });
+            } else {
+                LEVELS.push({
+                    id: i,
+                    title: `Challenge ${String(i).padStart(2, '0')}`,
+                    story: "A deeper SQL challenge awaits.",
+                    storyHint: "Look for subtle clues.",
+                    techHint: "Think about database internals.",
+                    category: "Advanced SQLi",
+                    difficulty: "★★★★★",
+                    flag: `FLAG{level_${String(i).padStart(2, '0')}_demo}`,
+                });
+            }
+        }
+
+        // ----- STATE -----
+        let state = {
+            currentLevel: 1,
+            solved: [],
+            flagsUsed: {},
+        };
+
+        function loadState() {
+            try {
+                const raw = localStorage.getItem('sqli_playground_state');
+                if (raw) {
+                    const parsed = JSON.parse(raw);
+                    state.currentLevel = parsed.currentLevel || 1;
+                    state.solved = parsed.solved || [];
+                    state.flagsUsed = parsed.flagsUsed || {};
+                }
+            } catch (e) {}
+        }
+        function saveState() {
+            localStorage.setItem('sqli_playground_state', JSON.stringify({
+                currentLevel: state.currentLevel,
+                solved: state.solved,
+                flagsUsed: state.flagsUsed,
+            }));
+        }
+
+        function isLocked(levelId) {
+            if (levelId === 1) return false;
+            if (state.solved.includes(levelId - 1)) return false;
+            return true;
+        }
+        function isCompleted(levelId) {
+            return state.solved.includes(levelId);
+        }
+        function isCurrent(levelId) {
+            return state.currentLevel === levelId;
+        }
+
+        // ----- RENDER SIDEBAR -----
+        function renderSidebar() {
+            const container = document.getElementById('levelList');
+            container.innerHTML = '';
+            LEVELS.forEach(lv => {
+                const div = document.createElement('div');
+                div.className = 'level-item';
+                const locked = isLocked(lv.id);
+                const completed = isCompleted(lv.id);
+                const current = isCurrent(lv.id);
+
+                if (completed) div.classList.add('completed');
+                else if (current) div.classList.add('current');
+                else if (locked) div.classList.add('locked');
+
+                const statusIcon = completed ? '✓' : (current ? '→' : (locked ? '🔒' : ''));
+                div.innerHTML = `
+                    <span class="num">${String(lv.id).padStart(2, '0')}</span>
+                    <span class="title">${lv.title}</span>
+                    <span class="status-icon">${statusIcon}</span>
+                `;
+
+                if (!locked || completed) {
+                    div.addEventListener('click', () => {
+                        if (!isLocked(lv.id) || isCompleted(lv.id)) {
+                            state.currentLevel = lv.id;
+                            saveState();
+                            renderAll();
+                        }
+                    });
+                }
+                container.appendChild(div);
+            });
+        }
+
+        // ----- RENDER MAIN -----
+        function renderMain() {
+            const lv = LEVELS.find(l => l.id === state.currentLevel) || LEVELS[0];
+            document.getElementById('levelBreadcrumb').textContent = `LEVEL ${String(lv.id).padStart(2, '0')}`;
+            document.getElementById('challengeTitle').textContent = lv.title;
+            document.getElementById('categoryBadge').textContent = lv.category;
+            document.getElementById('difficultyBadge').textContent = lv.difficulty;
+            document.getElementById('descriptionText').textContent = lv.story;
+            document.getElementById('storyHint').textContent = lv.storyHint;
+            document.getElementById('techHint').textContent = lv.techHint;
+
+            document.getElementById('queryParam').textContent = 'alice';
+            const responses = [
+                `{\n  "results": [\n    { "id": 1, "username": "alice" },\n    { "id": 2, "username": "bob" }\n  ]\n}`,
+                `{\n  "results": [\n    { "id": 1, "username": "admin" }\n  ]\n}`,
+                `{\n  "results": [\n    { "id": 3, "product": "sword" }\n  ]\n}`
+            ];
+            document.getElementById('responseArea').textContent = responses[lv.id % responses.length];
+
+            document.getElementById('flagFeedback').textContent = '';
+            document.getElementById('flagFeedback').className = 'flag-feedback';
+            document.getElementById('flagInput').value = '';
+
+            // session info
+            document.getElementById('sessionCurrent').textContent = String(lv.id).padStart(2, '0');
+            document.getElementById('sessionSolved').textContent = state.solved.length;
+            document.getElementById('sessionProgress').textContent = Math.round((state.solved.length / 60) * 100) + '%';
+
+            renderHistory();
+        }
+
+        function renderHistory() {
+            const list = document.getElementById('historyList');
+            if (state.solved.length === 0) {
+                list.innerHTML = '<span style="color:#3d5566; font-size:12px;">— none —</span>';
+                return;
+            }
+            let html = '';
+            state.solved.forEach(id => {
+                const flag = state.flagsUsed[id] || '---';
+                html += `<div class="history-item"><span class="lvl">L${String(id).padStart(2, '0')}</span><span class="flg">${flag}</span></div>`;
+            });
+            list.innerHTML = html;
+        }
+
+        function renderAll() {
+            renderSidebar();
+            renderMain();
+        }
+
+        // ----- FLAG SUBMIT -----
+        function handleFlagSubmit() {
+            const input = document.getElementById('flagInput').value.trim();
+            const lv = LEVELS.find(l => l.id === state.currentLevel);
+            if (!lv) return;
+
+            const feedback = document.getElementById('flagFeedback');
+            if (state.solved.includes(lv.id)) {
+                feedback.textContent = '✓ Already solved.';
+                feedback.className = 'flag-feedback success';
+                return;
+            }
+
+            if (input === lv.flag) {
+                state.solved.push(lv.id);
+                state.flagsUsed[lv.id] = input;
+                saveState();
+                feedback.textContent = '✓ Correct. Level ' + String(lv.id + 1).padStart(2, '0') + ' unlocked.';
+                feedback.className = 'flag-feedback success';
+                renderAll();
+                document.getElementById('flagFeedback').textContent = feedback.textContent;
+                document.getElementById('flagFeedback').className = feedback.className;
+            } else {
+                feedback.textContent = '✕ Incorrect flag.';
+                feedback.className = 'flag-feedback error';
+            }
+        }
+
+        // ----- RESET -----
+        function resetProgress() {
+            if (confirm('Reset all progress?')) {
+                state.solved = [];
+                state.flagsUsed = {};
+                state.currentLevel = 1;
+                saveState();
+                renderAll();
+            }
+        }
+
+        // ----- INIT -----
+        function init() {
+            loadState();
+            renderAll();
+
+            document.getElementById('submitFlag').addEventListener('click', handleFlagSubmit);
+            document.getElementById('flagInput').addEventListener('keydown', (e) => {
+                if (e.key === 'Enter') handleFlagSubmit();
+            });
+            document.getElementById('resetBtn').addEventListener('click', resetProgress);
+        }
+
+        init();
+    })();
+</script>
+</body>
+</html>

@@ -17,6 +17,8 @@
   </div>
 
   <div id="dashboard" class="page active">
+    <div class="bg-circuit" aria-hidden="true"></div>
+    <svg class="circuit-traces" id="circuit-dash" viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true"></svg>
     <header class="header">
       <div class="logo">
         <span class="logo-icon">⌘</span>
@@ -58,6 +60,8 @@
   </div>
 
   <div id="level-page" class="page">
+    <div class="bg-circuit" aria-hidden="true"></div>
+    <svg class="circuit-traces" id="circuit-level" viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true"></svg>
     <header class="header">
       <div class="logo">
         <button id="btn-back" class="btn-back" title="Back">←</button>
@@ -73,56 +77,60 @@
       </div>
     </header>
     <main class="main level-main">
-      <div class="level-container">
-        <div class="level-header">
-          <div class="level-title-row">
-            <h1 id="level-title">—</h1>
-            <span id="level-difficulty" class="difficulty-tag">—</span>
-          </div>
-          <p id="level-desc" class="level-desc"></p>
-          <p id="demo-only-note" class="demo-only-note hidden">Demo only — full attack engine runs in the local lab.</p>
-        </div>
-
-        <div class="attack-panel">
-          <div class="attack-meta">
-            <span class="attack-method">POST</span>
-            <span class="attack-path" id="attack-path">/login</span>
-          </div>
-          <div class="attack-fields">
-            <div class="field">
-              <label class="field-label">username</label>
-              <input type="text" id="payload-input" class="field-input" placeholder="admin' OR '1'='1" autocomplete="off" spellcheck="false" />
+      <div class="level-container zen-level">
+        <div class="zen-wrap">
+          <div class="zen-panel">
+            <div class="level-header">
+              <div class="level-title-row">
+                <h1 id="level-title" class="glitch-title" data-text="—">—</h1>
+                <span id="level-difficulty" class="difficulty-tag">—</span>
+              </div>
+              <p id="level-desc" class="level-desc one-shot"></p>
+              <p id="demo-only-note" class="demo-only-note hidden">Demo only — full attack engine runs in the local lab.</p>
             </div>
-            <div class="field">
-              <label class="field-label">password</label>
-              <input type="text" id="payload-pass" class="field-input" placeholder="password" autocomplete="off" spellcheck="false" />
+
+            <div class="hint-swap" id="hint-swap" title="Hold / hover for technical">
+              <div class="hint-body" id="hint-body">
+                <div class="epic" id="hint-indirect-text"></div>
+                <div class="tech" id="hint-technical-text"></div>
+              </div>
+              <div class="hint-hint" id="hint-hint-label">hold / hover → technical</div>
+            </div>
+            <!-- legacy toggle target kept hidden for JS compat -->
+            <div id="hint-indirect" class="hidden" aria-hidden="true"></div>
+            <div id="hint-technical" class="hidden" aria-hidden="true"></div>
+
+            <div class="attack-panel">
+              <div class="attack-meta">
+                <span class="attack-method">POST</span>
+                <span class="attack-path" id="attack-path">/login</span>
+              </div>
+              <div class="attack-fields">
+                <div class="field">
+                  <label class="field-label">username</label>
+                  <input type="text" id="payload-input" class="field-input" placeholder="admin' OR '1'='1" autocomplete="off" spellcheck="false" />
+                </div>
+                <div class="field">
+                  <label class="field-label">password</label>
+                  <input type="text" id="payload-pass" class="field-input" placeholder="password" autocomplete="off" spellcheck="false" />
+                </div>
+              </div>
+              <button id="btn-send-payload" class="btn-attack" type="button">EXECUTE</button>
+            </div>
+
+            <div id="response-area" class="response-panel hidden">
+              <div class="response-header"><span class="response-status">RESPONSE</span></div>
+              <div id="response-content" class="response-body"></div>
+            </div>
+
+            <div class="flag-panel">
+              <div class="flag-row">
+                <input type="text" id="flag-input" class="flag-input" placeholder="CTF{...}" autocomplete="off" spellcheck="false" />
+                <button id="btn-submit-flag" class="btn-submit" type="button">SUBMIT</button>
+              </div>
+              <div id="flag-message" class="flag-message hidden"></div>
             </div>
           </div>
-          <button id="btn-send-payload" class="btn-attack" type="button">EXECUTE</button>
-        </div>
-
-        <div id="response-area" class="response-panel hidden">
-          <div class="response-header"><span class="response-status">RESPONSE</span></div>
-          <pre id="response-content" class="response-body"></pre>
-        </div>
-
-        <div class="hint-panel" id="hint-indirect">
-          <div class="hint-row">
-            <span class="hint-mark">?</span>
-            <span id="hint-indirect-text" class="hint-text"></span>
-            <span class="hint-action">[ technical ]</span>
-          </div>
-          <div id="hint-technical" class="hint-tech hidden">
-            <span id="hint-technical-text"></span>
-          </div>
-        </div>
-
-        <div class="flag-panel">
-          <div class="flag-row">
-            <input type="text" id="flag-input" class="flag-input" placeholder="CTF{...}" autocomplete="off" spellcheck="false" />
-            <button id="btn-submit-flag" class="btn-submit" type="button">SUBMIT</button>
-          </div>
-          <div id="flag-message" class="flag-message hidden"></div>
         </div>
       </div>
     </main>

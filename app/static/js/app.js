@@ -604,3 +604,139 @@ if (_updateOverlay) {
     }
   });
 }
+
+
+/* ── Circuit hover glow + live shell (UI only) ───────────────── */
+(function () {
+  const DEFAULT_QUERY =
+    "SELECT id, username, role FROM users WHERE username = 'admin'-- -";
+
+  const SEGS = [
+    [19, 0, 19, 29, "#ff0055"],
+    [19, 29, 44, 29, "#ff0055"],
+    [44, 17, 44, 40, "#d500f9"],
+    [44, 40, 69, 40, "#d500f9"],
+    [69, 0, 69, 40, "#ff0055"],
+    [69, 40, 69, 68, "#ff0055"],
+    [54, 68, 69, 68, "#d500f9"],
+    [54, 68, 54, 100, "#d500f9"],
+    [30, 72, 54, 72, "#ff0055"],
+    [30, 40, 30, 72, "#ff0055"],
+    [0, 40, 30, 40, "#ff0055"],
+    [44, 17, 70, 17, "#d500f9"],
+    [0, 67, 54, 67, "#d500f9"],
+    [54, 0, 54, 40, "#d500f9"],
+  ];
+  const NODES = [
+    [20, 30, "#ff0055"],
+    [45, 18, "#d500f9"],
+    [70, 40, "#ff0055"],
+    [55, 68, "#d500f9"],
+    [30, 72, "#ff0055"],
+  ];
+
+  function distSeg(px, py, x1, y1, x2, y2) {
+    const dx = x2 - x1,
+      dy = y2 - y1;
+    const len2 = dx * dx + dy * dy || 1;
+    let t = ((px - x1) * dx + (py - y1) * dy) / len2;
+    t = Math.max(0, Math.min(1, t));
+    return Math.hypot(px - (x1 + t * dx), py - (y1 + t * dy));
+  }
+
+  function wireCircuitGlow(pageEl, svgId) {
+    const svg = document.getElementById(svgId);
+    if (!pageEl || !svg) return;
+    const lines = [];
+    const dots = [];
+    SEGS.forEach(([x1, y1, x2, y2, color]) => {
+      const line = document.createElementNS("http://www.w3.org/2000/svg", "line");
+      line.setAttribute("x1", x1);
+      line.setAttribute("y1", y1);
+      line.setAttribute("x2", x2);
+      line.setAttribute("y2", y2);
+      line.setAttribute("stroke", color);
+      line.setAttribute("stroke-opacity", "0");
+      svg.appendChild(line);
+      lines.push({ el: line, x1, y1, x2, y2 });
+    });
+    NODES.forEach(([x, y, color]) => {
+      const c = document.createElementNS("http://www.w3.org/2000/svg", "circle");
+      c.setAttribute("cx", x);
+      c.setAttribute("cy", y);
+      c.setAttribute("r", "0.55");
+      c.setAttribute("fill", color);
+      c.setAttribute("fill-opacity", "0");
+      svg.appendChild(c);
+      dots.push({ el: c, x, y });
+    });
+
+    const R = 10;
+    pageEl.addEventListener("mousemove", (e) => {
+      const rect = pageEl.getBoundingClientRect();
+      const px = ((e.clientX - rect.left) / rect.width) * 100;
+      const py = ((e.clientY - rect.top) / rect.height) * 100;
+      lines.forEach(({ el, x1, y1, x2, y2 }) => {
+        const d = distSeg(px, py, x1, y1, x2, y2);
+        if (d < R) {
+          const t = 1 - d / R;
+          el.setAttribute("stroke-opacity", (t * 0.55).toFixed(3));
+          el.style.filter =
+            t > 0.2
+              ? `drop-shadow(0 0 ${3 + t * 6}px ${el.getAttribute("stroke")})`
+              : "none";
+        } else {
+          el.setAttribute("stroke-opacity", "0");
+          el.style.filter = "none";
+        }
+      });
+      dots.forEach(({ el, x, y }) => {
+        const d = Math.hypot(px - x, py - y);
+        if (d < R * 0.8) {
+          const t = 1 - d / (R * 0.8);
+          el.setAttribute("fill-opacity", (t * 0.7).toFixed(3));
+          el.style.filter = `drop-shadow(0 0 ${2 + t * 5}px ${el.getAttribute("fill")})`;
+        } else {
+          el.setAttribute("fill-opacity", "0");
+          el.style.filter = "none";
+        }
+      });
+    });
+    pageEl.addEventListener("mouseleave", () => {
+      lines.forEach(({ el }) => {
+        el.setAttribute("stroke-opacity", "0");
+        el.style.filter = "none";
+      });
+      dots.forEach(({ el }) => {
+        el.setAttribute("fill-opacity", "0");
+        el.style.filter = "none";
+      });
+    });
+  }
+
+  function updateLiveShell() {
+    const cmd = document.getElementById("live-cmd");
+    const u = document.getElementById("payload-input");
+    const p = document.getElementById("payload-pass");
+    if (!cmd || !u || !p) return;
+    const parts = [];
+    if (u.value) parts.push(u.value);
+    if (p.value) parts.push(p.value);
+    if (!parts.length) {
+      cmd.textContent = DEFAULT_QUERY;
+      cmd.classList.add("ghost");
+    } else {
+      cmd.textContent = parts.join("  ·  ");
+      cmd.classList.remove("ghost");
+    }
+  }
+
+  wireCircuitGlow(document.getElementById("dashboard"), "circuit-glow-dash");
+  wireCircuitGlow(document.getElementById("level-page"), "circuit-glow-level");
+
+  const u = document.getElementById("payload-input");
+  const p = document.getElementById("payload-pass");
+  if (u) u.addEventListener("input", updateLiveShell);
+  if (p) p.addEventListener("input", updateLiveShell);
+  updateLiveShell();
+})();

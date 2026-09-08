@@ -187,6 +187,9 @@ def api_submit(level_id: int):
     flag = (data.get("flag") or "").strip()
     history_id = data.get("history_id")  # optional: which attempt found the flag
 
+    if not flag.startswith("CTF{"):
+        return jsonify({"ok": False, "message": "Wrong flag. Try again."})
+
     correct = get_flag_from_db(level_id)
     if not correct:
         return jsonify({"ok": False, "message": "Flag not configured in database"}), 500

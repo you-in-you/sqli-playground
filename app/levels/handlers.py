@@ -248,7 +248,7 @@ def handle_06(p: dict) -> dict:
 
     u = urllib.parse.unquote(raw_u)
 
-    if "flag" in u:
+    if "flag" in u.lower():
         return {
             "ok": False,
             "message": "Direct dump blocked !",

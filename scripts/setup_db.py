@@ -79,13 +79,12 @@ VERSION_CHECK_TIMEOUT = float(_get("VERSION_CHECK_TIMEOUT", 5))
 
 MIGRATIONS: list[dict] = [
     # Example:
-    # {
-    #     "version": "1.0.1",
-    #     "levels": [16, 17, 18],
-    #     "note": "Reworked medium levels",
-    # },
+    {
+        "version": "1.0.1",
+        "levels": [6,7],
+        "note": "Fix bugs",
+    },
 ]
-
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Terminal UI helpers

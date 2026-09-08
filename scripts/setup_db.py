@@ -64,7 +64,7 @@ FLAGS_FILE = str(_get("FLAGS_FILE", str(ROOT / "flags.json")))
 TOTAL_LEVELS = 60
 
 # Bump when shipping breaking level/handler changes and list them in MIGRATIONS.
-APP_VERSION = "1.0.0"
+APP_VERSION = "1.0.1"
 REPO_URL = "https://github.com/you-in-you/sqli-playground"
 
 # Remote version manifest (branch: main). Override with SQLI_CTF_VERSION_URL.

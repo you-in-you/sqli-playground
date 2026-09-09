@@ -31,6 +31,12 @@ def index():
     return render_template("index.html")
 
 
+@app.route("/level17")
+def level17_page():
+    """SPA entry for level 17 so /level17?args=... works on refresh."""
+    return render_template("index.html")
+
+
 def _parse_ver(v: str) -> tuple:
     parts = []
     for p in str(v or "").strip().split("."):
@@ -156,8 +162,22 @@ def api_attack(level_id: int):
         return jsonify({"error": "403 Access Denied"}), 403
 
     data = request.get_json(silent=True) or {}
+    # Real request cookies / headers for handlers that need them
+    data["_cookies"] = dict(request.cookies)
+    data["_user_agent"] = request.headers.get("User-Agent") or ""
     username = data.get("username", "")
     password = data.get("password", "")
+    # Level 19: history reflects the session token that was actually trusted
+    if level_id == 19:
+        username = str(data.get("_cookies", {}).get("user") or username)
+    # Level 20: history shows the UA string the WAF would log
+    if level_id == 20:
+        username = str(
+            data.get("username")
+            or data.get("user_agent")
+            or data.get("_user_agent")
+            or username
+        )
 
     result = handle_level(level_id, data)
 

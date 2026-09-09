@@ -1077,7 +1077,7 @@ _LEVEL_17_COL_WORDS = (
 
 def _level_17_col_count() -> int:
     r = _run(
-        17,
+        18,
         "SELECT COUNT(*) AS c FROM information_schema.columns "
         "WHERE table_schema = DATABASE() AND table_name = 'secrets'",
     )
@@ -1089,7 +1089,7 @@ def _level_17_col_count() -> int:
 
 def _level_17_extra_cols() -> list[str]:
     r = _run(
-        17,
+        18,
         "SELECT column_name AS c FROM information_schema.columns "
         "WHERE table_schema = DATABASE() AND table_name = 'secrets' "
         "AND column_name NOT IN ('id','name','flag')",
@@ -1103,9 +1103,9 @@ def _level_17_extra_cols() -> list[str]:
 
 
 def _level_17_read_flag_column() -> str:
-    sec = _run(17, "SELECT flag FROM secrets WHERE name = 'level_flag' LIMIT 1")
+    sec = _run(18, "SELECT flag FROM secrets WHERE name = 'level_flag' LIMIT 1")
     if not sec.get("rows"):
-        sec = _run(17, "SELECT flag FROM secrets LIMIT 1")
+        sec = _run(18, "SELECT flag FROM secrets LIMIT 1")
     if sec.get("rows") and "flag" in sec["rows"][0]:
         return str(sec["rows"][0]["flag"] or "")
     return ""
@@ -1116,7 +1116,7 @@ def _level_17_find_hidden_flag() -> str | None:
         if not re.match(r"^[A-Za-z0-9_]+$", col):
             continue
         r = _run(
-            17,
+            18,
             f"SELECT `{col}` AS v FROM secrets WHERE name = 'level_flag' LIMIT 1",
         )
         if not r.get("rows"):
@@ -1145,9 +1145,9 @@ def _setup_level_17_wide_secrets() -> None:
         if hidden:
             main_flag = hidden
         else:
-            main_flag = _get_flag(17)
+            main_flag = _get_flag(18)
             if not str(main_flag).startswith("CTF{"):
-                main_flag = "CTF{level17_fallback}"
+                main_flag = "CTF{level18_fallback}"
 
     target = 55
     if count <= 40:
@@ -1155,7 +1155,7 @@ def _setup_level_17_wide_secrets() -> None:
             col = _level_17_rand_col(existing)
             existing.add(col)
             _run(
-                17,
+            18,
                 f"ALTER TABLE secrets ADD COLUMN `{col}` VARCHAR(255) NULL",
             )
             count += 1
@@ -1163,7 +1163,7 @@ def _setup_level_17_wide_secrets() -> None:
     extra = _level_17_extra_cols()
     if not extra:
         col = _level_17_rand_col(existing)
-        _run(17, f"ALTER TABLE secrets ADD COLUMN `{col}` VARCHAR(255) NULL")
+        _run(18, f"ALTER TABLE secrets ADD COLUMN `{col}` VARCHAR(255) NULL")
         extra = _level_17_extra_cols()
 
     current = _level_17_read_flag_column()
@@ -1171,7 +1171,7 @@ def _setup_level_17_wide_secrets() -> None:
         hide_in = random.choice(extra)
         safe = current.replace("\\", "\\\\").replace("'", "''")
         _run(
-            17,
+            18,
             f"UPDATE secrets SET `{hide_in}` = '{safe}', flag = 'NOT HERE' "
             f"WHERE name = 'level_flag'",
         )
@@ -1181,7 +1181,7 @@ def _setup_level_17_wide_secrets() -> None:
         hide_in = random.choice(extra)
         safe = main_flag.replace("\\", "\\\\").replace("'", "''")
         _run(
-            17,
+            18,
             f"UPDATE secrets SET `{hide_in}` = '{safe}', flag = 'NOT HERE' "
             f"WHERE name = 'level_flag'",
         )
@@ -1191,16 +1191,57 @@ def _restore_level_17_secrets(flag_val: str) -> None:
     for col in _level_17_extra_cols():
         if not re.match(r"^[A-Za-z0-9_]+$", col):
             continue
-        _run(17, f"ALTER TABLE secrets DROP COLUMN `{col}`")
+        _run(18, f"ALTER TABLE secrets DROP COLUMN `{col}`")
     if flag_val.startswith("CTF{"):
         safe = flag_val.replace("\\", "\\\\").replace("'", "''")
         _run(
-            17,
+            18,
             f"UPDATE secrets SET flag = '{safe}' WHERE name = 'level_flag'",
         )
 
 
 def handle_17(p: dict) -> dict:
+    """
+    Level 17 — Login as Admin.
+    Form fields (username/password) are intentionally safe / non-injectable.
+    The vulnerable signal is the URL query param `args` (base64 role).
+    Default page URL uses base64("user"); base64("admin") grants the flag.
+    """
+    import base64
+
+    args_raw = (p.get("args") or "").strip()
+    role = ""
+    if args_raw:
+        try:
+            pad = "=" * (-len(args_raw) % 4)
+            role = (
+                base64.b64decode(args_raw + pad)
+                .decode("utf-8", errors="ignore")
+                .strip()
+                .lower()
+            )
+        except Exception:
+            role = ""
+
+    if role == "admin":
+        flag_val = _get_flag(17)
+        return {
+            "ok": True,
+            "message": f"Welcome, admin. Flag: {flag_val}",
+            "raw": "",
+        }
+
+    # Username/password path is secure: never SQLi, never grants admin via form alone.
+    return {
+        "ok": False,
+        "message": "Login failed.",
+        "raw": "",
+    }
+
+
+# ───────────────────────── Level 18 — UNION under LIMIT ─────────────────────────
+def handle_18(p: dict) -> dict:
+    """Former level 17 — UNION under LIMIT (wide secrets / hidden flag column)."""
     u = p.get("username", "")
 
     if any(x in u for x in ("--", "/*", "#")):
@@ -1209,7 +1250,7 @@ def handle_17(p: dict) -> dict:
     _setup_level_17_wide_secrets()
 
     q = f"SELECT id, username, role FROM users WHERE username = '{u}' LIMIT 1"
-    r = _run(17, q)
+    r = _run(18, q)
 
     if r.get("error"):
         return {
@@ -1234,7 +1275,7 @@ def handle_17(p: dict) -> dict:
             None,
         )
         if not flag_val:
-            flag_val = _level_17_find_hidden_flag() or _get_flag(17)
+            flag_val = _level_17_find_hidden_flag() or _get_flag(18)
         _restore_level_17_secrets(flag_val)
         return {
             "ok": True,
@@ -1249,104 +1290,19 @@ def handle_17(p: dict) -> dict:
     }
 
 
-# ───────────────────────── Level 18 — Second-Order Basic ─────────────────────────
-def handle_18(p: dict) -> dict:
-    """password=save stores username; password=view runs vulnerable read."""
-    action = (p.get("password") or "view").strip().lower()
-    u = p.get("username", "")
-    db = level_db(18)
-
-    if action == "save":
-        try:
-            conn = get_conn(db)
-            try:
-                with conn.cursor() as cur:
-                    cur.execute(
-                        "CREATE TABLE IF NOT EXISTS profiles ("
-                        "id INT PRIMARY KEY, name VARCHAR(512))"
-                    )
-                    cur.execute("DELETE FROM profiles WHERE id = 1")
-                    # intentionally vulnerable insert
-                    cur.execute(f"INSERT INTO profiles (id, name) VALUES (1, '{u}')")
-                    conn.commit()
-            finally:
-                conn.close()
-            return {
-                "ok": True,
-                "message": "Profile saved. Now set password=view to trigger the query.",
-                "raw": f"Saved name length={len(u)}",
-            }
-        except Exception as e:
-            return {"ok": False, "message": "Save failed", "raw": str(e), "error": str(e)}
-
-    # view path
-    q = (
-        "SELECT id, username, role FROM users WHERE username = "
-        "(SELECT name FROM profiles WHERE id = 1 LIMIT 1)"
-    )
-    r = _run(18, q)
-
-    if r.get("error"):
-        # Second-order can break syntax — surface error for learning
-        err = str(r.get("error") or "")
-        if "CTF{" in err:
-            flag_val = _get_flag(18)
-            return {
-                "ok": True,
-                "message": f"Second-order error channel worked. Flag: {flag_val}",
-                "raw": err,
-                "error": err,
-            }
-        return {
-            "ok": False,
-            "message": "Query error on view — check stored payload syntax.",
-            "raw": r.get("raw") or err,
-            "error": err,
-        }
-
-    rows = r.get("rows") or []
-    blob = _rows_blob(rows)
-
-    if "CTF{" in blob:
-        flag_val = next((str(v) for row in rows for v in row.values() if str(v).startswith("CTF{")), _get_flag(18))
-        return {
-            "ok": True,
-            "message": f"Second-order extraction successful. Flag: {flag_val}",
-            "raw": r.get("raw") or "",
-        }
-
-    if any(row.get("username") == "admin" or row.get("role") == "admin" for row in rows):
-        # Stored payload caused admin match
-        if "admin" in (u or "").lower() and action != "save":
-            # could be leftover store
-            pass
-        flag_val = _get_flag(18)
-        return {
-            "ok": True,
-            "message": f"Second-order login as admin. Flag: {flag_val}",
-            "raw": r.get("raw") or "",
-        }
-
-    if len(rows) > 3:
-        return {
-            "ok": False,
-            "message": "Too many rows — target a precise second-order payload, do not dump.",
-            "raw": "",
-        }
-
-    return {
-        "ok": False,
-        "message": "View executed. Save a payload that breaks out when the subquery is inlined.",
-        "raw": r.get("raw") or "",
-    }
-
-
-# ───────────────────────── Level 19 — Cookie Injection ─────────────────────────
+# ───────────────────────── Level 19 — Remembered Session ─────────────────────────
 def handle_19(p: dict) -> dict:
-    cookie = p.get("username", p.get("cookie", "guest"))
-    lowered = cookie.lower()
+    """
+    Trusts the real HTTP cookie named `user` (set by the client on open).
+    Form username/password are ignored for authorization — player must discover
+    and inject through the browser cookie without being told the channel name.
+    """
+    cookies = p.get("_cookies") or {}
+    token = cookies.get("user")
+    if token is None or token == "":
+        token = "guest"
 
-    q = f"SELECT id, username, role FROM users WHERE username = '{cookie}'"
+    q = f"SELECT id, username, role FROM users WHERE username = '{token}'"
     r = _run(19, q)
 
     if r.get("error"):
@@ -1361,24 +1317,27 @@ def handle_19(p: dict) -> dict:
     blob = _rows_blob(rows)
 
     if "CTF{" in blob:
-        flag_val = next((str(v) for row in rows for v in row.values() if str(v).startswith("CTF{")), _get_flag(19))
+        flag_val = next(
+            (str(v) for row in rows for v in row.values() if str(v).startswith("CTF{")),
+            _get_flag(19),
+        )
         return {
             "ok": True,
-            "message": f"Cookie injection extracted flag. Flag: {flag_val}",
+            "message": f"Access granted. Flag: {flag_val}",
             "raw": r.get("raw") or "",
         }
 
     if any(row.get("username") == "admin" or row.get("role") == "admin" for row in rows):
-        if cookie.strip().lower() == "admin":
+        if str(token).strip().lower() == "admin":
             return {
                 "ok": False,
-                "message": "Plain admin cookie is not enough — inject through the cookie value.",
+                "message": "Plain admin is not enough.",
                 "raw": r.get("raw") or "",
             }
         flag_val = _get_flag(19)
         return {
             "ok": True,
-            "message": f"Cookie forged as admin. Flag: {flag_val}",
+            "message": f"Welcome, admin. Flag: {flag_val}",
             "raw": r.get("raw") or "",
         }
 
@@ -1386,48 +1345,143 @@ def handle_19(p: dict) -> dict:
         flag_val = _get_flag(19)
         return {
             "ok": True,
-            "message": f"Cookie injection returned multiple rows. Flag: {flag_val}",
+            "message": f"Access granted. Flag: {flag_val}",
             "raw": r.get("raw") or "",
         }
 
     if len(rows) > 3:
         return {
             "ok": False,
-            "message": "Too many rows — do not dump. Target admin or extract the flag.",
+            "message": "Too many rows — do not dump.",
             "raw": "",
         }
 
     return {
         "ok": False,
-        "message": "Cookie accepted but not privileged. Inject into the cookie-like field (username).",
+        "message": "Not privileged.",
         "raw": r.get("raw") or "",
     }
 
 
-# ───────────────────────── Level 20 — Header Injection ─────────────────────────
-def handle_20(p: dict) -> dict:
-    ua = p.get("username", p.get("user_agent", "Mozilla"))
-    lowered = ua.lower()
+# ───────────────────────── Level 20 — WAF Watchdog ─────────────────────────
+_LEVEL20_WAF_WINDOW = 10.0  # seconds
+_LEVEL20_WAF_THRESHOLD = 15  # requests inside the window
 
+
+def _level20_ensure_meta() -> None:
+    _run(
+        20,
+        "CREATE TABLE IF NOT EXISTS waf_hits ("
+        "id INT AUTO_INCREMENT PRIMARY KEY, "
+        "ts DOUBLE NOT NULL)",
+    )
+    _run(
+        20,
+        "CREATE TABLE IF NOT EXISTS waf_log ("
+        "id INT AUTO_INCREMENT PRIMARY KEY, "
+        "ua VARCHAR(1024) NULL, "
+        "created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)",
+    )
+
+
+def _level20_hit_count() -> int:
+    """Record one hit and return how many hits fall inside the sliding window."""
+    _level20_ensure_meta()
+    now = time.time()
+    _run(20, f"INSERT INTO waf_hits (ts) VALUES ({now})")
+    cutoff = now - _LEVEL20_WAF_WINDOW
+    _run(20, f"DELETE FROM waf_hits WHERE ts < {cutoff}")
+    r = _run(
+        20,
+        f"SELECT COUNT(*) AS c FROM waf_hits WHERE ts >= {cutoff}",
+    )
+    rows = r.get("rows") or []
+    if not rows:
+        return 1
+    row = rows[0]
+    try:
+        return int(row.get("c") or row.get("COUNT(*)") or 1)
+    except (TypeError, ValueError):
+        return 1
+
+
+def handle_20(p: dict) -> dict:
+    """
+    Normal requests are safe (no SQLi surface on the form).
+    After >=15 requests within 10 seconds the simulated WAF logs the client
+    User-Agent with a vulnerable query — that is the injection point.
+
+    UA source (first match): body username / user_agent (lab control via form
+    or proxy body), else real HTTP User-Agent header.
+    """
+    ua = (
+        p.get("username")
+        or p.get("user_agent")
+        or p.get("_user_agent")
+        or "Mozilla"
+    )
+    ua = str(ua)
+
+    count = _level20_hit_count()
+
+    if count < _LEVEL20_WAF_THRESHOLD:
+        return {
+            "ok": False,
+            "message": (
+                f"Request accepted. WAF traffic score: "
+                f"{count}/{_LEVEL20_WAF_THRESHOLD} in {_LEVEL20_WAF_WINDOW:.0f}s."
+            ),
+            "raw": "",
+        }
+
+    # WAF tripped: log offender User-Agent (intentionally vulnerable).
+    log_q = f"INSERT INTO waf_log (ua) VALUES ('{ua}')"
+    log_r = _run(20, log_q)
+
+    # Also "match" the logged agent against users — second injectable surface.
     q = f"SELECT id, username, role FROM users WHERE username = '{ua}' LIMIT 5"
     r = _run(20, q)
 
+    # Prefer SELECT result; surface INSERT errors too (stacked / breakout learning)
+    if log_r.get("error") and not r.get("error"):
+        err = str(log_r.get("error") or "")
+        if "CTF{" in err:
+            flag_val = _get_flag(20)
+            return {
+                "ok": True,
+                "message": f"WAF log channel leaked data. Flag: {flag_val}",
+                "raw": err,
+                "error": err,
+            }
+
     if r.get("error"):
+        err = str(r.get("error") or "")
+        if "CTF{" in err:
+            flag_val = _get_flag(20)
+            return {
+                "ok": True,
+                "message": f"WAF path error channel. Flag: {flag_val}",
+                "raw": err,
+                "error": err,
+            }
         return {
             "ok": False,
-            "message": "Query error",
-            "raw": r.get("raw") or str(r.get("error")),
-            "error": r.get("error"),
+            "message": "WAF log query error.",
+            "raw": r.get("raw") or err,
+            "error": err,
         }
 
     rows = r.get("rows") or []
     blob = _rows_blob(rows)
 
     if "CTF{" in blob:
-        flag_val = next((str(v) for row in rows for v in row.values() if str(v).startswith("CTF{")), _get_flag(20))
+        flag_val = next(
+            (str(v) for row in rows for v in row.values() if str(v).startswith("CTF{")),
+            _get_flag(20),
+        )
         return {
             "ok": True,
-            "message": f"Header injection worked. Flag: {flag_val}",
+            "message": f"WAF log injection worked. Flag: {flag_val}",
             "raw": r.get("raw") or "",
         }
 
@@ -1435,13 +1489,13 @@ def handle_20(p: dict) -> dict:
         if ua.strip().lower() == "admin":
             return {
                 "ok": False,
-                "message": "Plain admin is not the intended path — inject via User-Agent field.",
+                "message": "WAF logged plain admin — not enough, inject.",
                 "raw": r.get("raw") or "",
             }
         flag_val = _get_flag(20)
         return {
             "ok": True,
-            "message": f"User-Agent forged. Flag: {flag_val}",
+            "message": f"WAF logged a privileged agent. Flag: {flag_val}",
             "raw": r.get("raw") or "",
         }
 
@@ -1449,21 +1503,17 @@ def handle_20(p: dict) -> dict:
         flag_val = _get_flag(20)
         return {
             "ok": True,
-            "message": f"Header injection multi-row. Flag: {flag_val}",
+            "message": f"WAF log multi-row. Flag: {flag_val}",
             "raw": r.get("raw") or "",
-        }
-
-    if len(rows) > 3:
-        return {
-            "ok": False,
-            "message": "Too many rows — refine the payload.",
-            "raw": "",
         }
 
     return {
         "ok": False,
-        "message": "Header processed. Inject SQLi into the User-Agent-like field.",
-        "raw": r.get("raw") or "",
+        "message": (
+            f"WAF threshold reached ({count} hits / {_LEVEL20_WAF_WINDOW:.0f}s). "
+            "Offender User-Agent was logged."
+        ),
+        "raw": r.get("raw") or log_r.get("raw") or "",
     }
 
 

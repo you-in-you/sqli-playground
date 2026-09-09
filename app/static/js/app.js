@@ -256,6 +256,23 @@ async function openLevel(id) {
     $("#flag-input").value = "";
     $("#flag-message").className = "flag-message hidden";
 
+    // Level 17: surface role via URL query ?args=base64(role). Default role = user.
+    if (id === 17) {
+      const params = new URLSearchParams(window.location.search);
+      let args = params.get("args");
+      if (!args || window.location.pathname !== "/level17") {
+        args = btoa("user");
+      }
+      history.replaceState({ level: 17 }, "", "/level17?args=" + encodeURIComponent(args));
+    } else if (window.location.pathname === "/level17") {
+      history.replaceState({}, "", "/");
+    }
+
+    // Level 19: real browser cookie `user` (player must discover it; no UI label).
+    if (id === 19) {
+      document.cookie = "user=guest; path=/; SameSite=Lax";
+    }
+
     $("#dashboard").classList.remove("active");
     $("#level-page").classList.add("active");
     window.scrollTo(0, 0);
@@ -292,10 +309,16 @@ $("#btn-send-payload").addEventListener("click", async () => {
   }
 
   try {
-    lastPayload = { username, password };
+    const body = { username, password };
+    // Level 17: forward current URL ?args= (base64 role) to the handler
+    if (currentLevel === 17) {
+      const args = new URLSearchParams(window.location.search).get("args") || "";
+      body.args = args;
+    }
+    lastPayload = body;
     const res = await api(`/api/level/${currentLevel}/attack`, {
       method: "POST",
-      body: JSON.stringify({ username, password }),
+      body: JSON.stringify(body),
     });
     if (res.history_id) lastHistoryId = res.history_id;
     const lines = [];
@@ -389,6 +412,9 @@ $("#btn-back").addEventListener("click", () => showDashboard());
 function showDashboard() {
   $("#level-page").classList.remove("active");
   $("#dashboard").classList.add("active");
+  if (window.location.pathname === "/level17") {
+    history.replaceState({}, "", "/");
+  }
   loadDashboard();
 }
 
@@ -663,7 +689,17 @@ if (_btnShareDl) {
 }
 
 loadDashboard()
-  .then(() => checkForUpdate())
+  .then(async () => {
+    // Deep-link: /level17?args=... opens level 17 with that role token
+    if (window.location.pathname === "/level17") {
+      try {
+        await openLevel(17);
+      } catch (e) {
+        console.error(e);
+      }
+    }
+    return checkForUpdate();
+  })
   .catch((e) => {
     console.error(e);
     $("#levels-grid").innerHTML =

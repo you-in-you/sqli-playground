@@ -8,7 +8,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@300;400;500;600;700;800&display=swap" rel="stylesheet" />
-  <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}?v=17" />
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}?v=18" />
 </head>
 <body>
   <div id="dashboard" class="page active">
@@ -21,6 +21,12 @@
       </div>
       <div class="header-right">
         <span class="progress-text">Progress: <span id="progress-count">0</span>/60</span>
+        <button type="button" class="btn-fx" data-fx-toggle aria-pressed="false" title="Pause background light animations">
+          <svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true">
+            <path fill="currentColor" d="M9.2 1.1 4.6 8.4h2.7l-1.3 6.5 5.2-8.1H8.6L9.2 1.1z"/>
+          </svg>
+          <span class="fx-label">FX on</span>
+        </button>
         <a class="btn-bug" href="https://github.com/you-in-you/sqli-playground/issues/new" target="_blank" rel="noopener noreferrer" title="Found a bug? Report it">
           <svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true">
             <path fill="currentColor" fill-rule="evenodd" d="M8 1.5a.5.5 0 0 1 .5.5v1.086a4.502 4.502 0 0 1 2.957 2.957H12.5a.5.5 0 0 1 0 1h-.543c.027.162.043.328.043.5v1H13a.5.5 0 0 1 0 1h-1v1c0 .172-.016.338-.043.5h.543a.5.5 0 0 1 0 1h-1.043A4.502 4.502 0 0 1 8.5 14.414V15.5a.5.5 0 0 1-1 0v-1.086a4.502 4.502 0 0 1-2.957-2.957H3.5a.5.5 0 0 1 0-1h.543A4.56 4.56 0 0 1 4 11V10H3a.5.5 0 0 1 0-1h1V8c0-.172.016-.338.043-.5H3.5a.5.5 0 0 1 0-1h1.043A4.502 4.502 0 0 1 7.5 3.086V2a.5.5 0 0 1 .5-.5zM5 8v3a3.5 3.5 0 0 0 7 0V8a3.5 3.5 0 0 0-7 0zm-2.854-3.146a.5.5 0 0 1 0-.708l1-1a.5.5 0 1 1 .708.708l-1 1a.5.5 0 0 1-.708 0zm10.708 0a.5.5 0 0 0 0-.708l-1-1a.5.5 0 1 0-.708.708l1 1a.5.5 0 0 0 .708 0zM1.5 8.5a.5.5 0 0 1 .5-.5h1a.5.5 0 0 1 0 1H2a.5.5 0 0 1-.5-.5zm11 0a.5.5 0 0 1 .5-.5h1a.5.5 0 0 1 0 1h-1a.5.5 0 0 1-.5-.5z"/>
@@ -76,6 +82,12 @@
       </div>
       <div class="header-right header-right-level">
         <span id="level-badge" class="level-badge">LEVEL 01</span>
+        <button type="button" class="btn-fx" data-fx-toggle aria-pressed="false" title="Pause background light animations">
+          <svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true">
+            <path fill="currentColor" d="M9.2 1.1 4.6 8.4h2.7l-1.3 6.5 5.2-8.1H8.6L9.2 1.1z"/>
+          </svg>
+          <span class="fx-label">FX on</span>
+        </button>
         <a class="btn-bug" href="https://github.com/you-in-you/sqli-playground/issues/new" target="_blank" rel="noopener noreferrer" title="Found a bug? Report it">
           <svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true">
             <path fill="currentColor" fill-rule="evenodd" d="M8 1.5a.5.5 0 0 1 .5.5v1.086a4.502 4.502 0 0 1 2.957 2.957H12.5a.5.5 0 0 1 0 1h-.543c.027.162.043.328.043.5v1H13a.5.5 0 0 1 0 1h-1v1c0 .172-.016.338-.043.5h.543a.5.5 0 0 1 0 1h-1.043A4.502 4.502 0 0 1 8.5 14.414V15.5a.5.5 0 0 1-1 0v-1.086a4.502 4.502 0 0 1-2.957-2.957H3.5a.5.5 0 0 1 0-1h.543A4.56 4.56 0 0 1 4 11V10H3a.5.5 0 0 1 0-1h1V8c0-.172.016-.338.043-.5H3.5a.5.5 0 0 1 0-1h1.043A4.502 4.502 0 0 1 7.5 3.086V2a.5.5 0 0 1 .5-.5zM5 8v3a3.5 3.5 0 0 0 7 0V8a3.5 3.5 0 0 0-7 0zm-2.854-3.146a.5.5 0 0 1 0-.708l1-1a.5.5 0 1 1 .708.708l-1 1a.5.5 0 0 1-.708 0zm10.708 0a.5.5 0 0 0 0-.708l-1-1a.5.5 0 1 0-.708.708l1 1a.5.5 0 0 0 .708 0zM1.5 8.5a.5.5 0 0 1 .5-.5h1a.5.5 0 0 1 0 1H2a.5.5 0 0 1-.5-.5zm11 0a.5.5 0 0 1 .5-.5h1a.5.5 0 0 1 0 1h-1a.5.5 0 0 1-.5-.5z"/>
@@ -226,6 +238,6 @@
   </div>
 
 <script src="https://cdn.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.min.js"></script>
-  <script src="{{ url_for('static', filename='js/app.js') }}?v=17"></script>
+  <script src="{{ url_for('static', filename='js/app.js') }}?v=18"></script>
 </body>
 </html>

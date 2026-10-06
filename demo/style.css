@@ -1092,6 +1092,85 @@ a.btn-github:focus-visible .gh-label{
   opacity:1 !important;
 }
 
+/* ========== FX toggle (pause circuit blink / drop-shadow rAF) ========== */
+button.btn-fx{
+  display:inline-flex !important;
+  flex-direction:row-reverse !important;
+  align-items:center !important;
+  justify-content:center !important;
+  flex-shrink:0 !important;
+  height:28px !important;
+  width:auto !important;
+  min-width:28px !important;
+  max-width:none !important;
+  padding:0 6px !important;
+  gap:0 !important;
+  border-radius:2px !important;
+  border:1px solid var(--border2) !important;
+  color:var(--muted) !important;
+  background:transparent !important;
+  overflow:hidden !important;
+  box-sizing:border-box !important;
+  cursor:pointer !important;
+  font-family:var(--font) !important;
+  transition:color .2s, border-color .2s, background .2s, box-shadow .2s, gap .28s ease, padding .28s ease !important;
+}
+button.btn-fx .fx-label{
+  display:block !important;
+  width:0 !important;
+  min-width:0 !important;
+  max-width:none !important;
+  opacity:0 !important;
+  overflow:hidden !important;
+  white-space:nowrap !important;
+  font-size:10px !important;
+  font-weight:600 !important;
+  letter-spacing:.4px !important;
+  line-height:1 !important;
+  transition:width .28s ease, opacity .2s ease, margin .28s ease !important;
+  margin:0 !important;
+  padding:0 !important;
+}
+button.btn-fx svg{
+  display:block !important;
+  flex:0 0 16px !important;
+  width:16px !important;
+  height:16px !important;
+}
+button.btn-fx:hover,
+button.btn-fx:focus-visible{
+  gap:8px !important;
+  padding:0 10px !important;
+  color:var(--cyan) !important;
+  border-color:rgba(0,229,255,.65) !important;
+  background:rgba(0,229,255,.12) !important;
+  box-shadow:0 0 18px rgba(0,229,255,.35) !important;
+}
+button.btn-fx:hover .fx-label,
+button.btn-fx:focus-visible .fx-label{
+  width:3.4rem !important;
+  opacity:1 !important;
+}
+button.btn-fx[aria-pressed="true"]{
+  color:var(--dim) !important;
+  border-color:var(--border) !important;
+  background:rgba(61,61,80,.12) !important;
+  box-shadow:none !important;
+}
+button.btn-fx[aria-pressed="true"]:hover,
+button.btn-fx[aria-pressed="true"]:focus-visible{
+  color:var(--muted) !important;
+  border-color:var(--border2) !important;
+  background:rgba(61,61,80,.18) !important;
+  box-shadow:none !important;
+}
+body.fx-paused .circuit-traces line{
+  filter:none !important;
+}
+body.fx-paused .bg-circuit{
+  opacity:.85;
+}
+
 /* ========== Bug report expand (mirrors btn-github) ========== */
 a.btn-bug{
   display:inline-flex !important;

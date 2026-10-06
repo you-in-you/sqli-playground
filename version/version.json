@@ -1,9 +1,9 @@
 {
-  "version": "1.0.1",
-  "released": "2026-09-08",
+  "version": "1.0.2",
+  "released": "2026-10-06",
   "url": "https://github.com/you-in-you/sqli-playground",
   "changes": [
-    "fix: lower case check flag in level 6 & bug in level 7"
-  ],
+    "feat: toggle button to pause background circuit light animations (stops rAF rendering)"
+  ]
   "notes": "After pulling a new release, run: ./run.sh ensure (or ./run.sh install for a full wipe)."
 }

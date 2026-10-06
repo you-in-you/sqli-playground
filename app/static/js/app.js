@@ -852,14 +852,30 @@ if (_updateOverlay) {
   }
 
   let all = buildTraces("circuit-dash", SEGS).concat(buildTraces("circuit-level", randomLevelSegs()));
+  let fxPaused = false;
+  let rafId = 0;
+  const FX_KEY = "sqli_fx_paused";
+
+  function freezeTraces() {
+    all.forEach((line) => {
+      if (!line.isConnected) return;
+      line.style.filter = "none";
+      line.setAttribute("stroke-opacity", "0.22");
+    });
+  }
 
   window.rerollLevelCircuit = function () {
     const levelLines = buildTraces("circuit-level", randomLevelSegs());
     all = buildTraces("circuit-dash", SEGS).concat(levelLines);
+    if (fxPaused) freezeTraces();
   };
 
   const t0 = performance.now() / 1000;
   function tick() {
+    if (fxPaused) {
+      rafId = 0;
+      return;
+    }
     const t = performance.now() / 1000 - t0;
     if (!all.length) {
       all = buildTraces("circuit-dash", SEGS).concat(buildTraces("circuit-level", randomLevelSegs()));
@@ -890,9 +906,49 @@ if (_updateOverlay) {
       }
       line.setAttribute("stroke-opacity", op.toFixed(3));
     });
-    requestAnimationFrame(tick);
+    rafId = requestAnimationFrame(tick);
   }
-  requestAnimationFrame(tick);
+
+  function setFxPaused(paused) {
+    fxPaused = !!paused;
+    document.body.classList.toggle("fx-paused", fxPaused);
+    try {
+      localStorage.setItem(FX_KEY, fxPaused ? "1" : "0");
+    } catch (_) {}
+    document.querySelectorAll("[data-fx-toggle]").forEach((btn) => {
+      btn.setAttribute("aria-pressed", fxPaused ? "true" : "false");
+      btn.title = fxPaused
+        ? "Resume background light animations"
+        : "Pause background light animations";
+      const label = btn.querySelector(".fx-label");
+      if (label) label.textContent = fxPaused ? "FX off" : "FX on";
+    });
+    if (fxPaused) {
+      if (rafId) {
+        cancelAnimationFrame(rafId);
+        rafId = 0;
+      }
+      freezeTraces();
+    } else if (!rafId) {
+      rafId = requestAnimationFrame(tick);
+    }
+  }
+
+  try {
+    if (localStorage.getItem(FX_KEY) === "1") {
+      setFxPaused(true);
+    } else {
+      rafId = requestAnimationFrame(tick);
+    }
+  } catch (_) {
+    rafId = requestAnimationFrame(tick);
+  }
+
+  document.querySelectorAll("[data-fx-toggle]").forEach((btn) => {
+    btn.addEventListener("click", function () {
+      setFxPaused(!fxPaused);
+    });
+  });
 
   function bindTitleGlitch(el) {
     if (!el || el.dataset.glitchBound === "1") return;
@@ -998,6 +1054,7 @@ if (_updateOverlay) {
     all = buildTraces("circuit-dash", SEGS).concat(
       buildTraces("circuit-level", randomLevelSegs())
     );
+    if (fxPaused) freezeTraces();
   });
   if (dashPage) obs.observe(dashPage, { attributes: true, attributeFilter: ["class"] });
   if (levelPage) obs.observe(levelPage, { attributes: true, attributeFilter: ["class"] });
